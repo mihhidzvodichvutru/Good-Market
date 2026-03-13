@@ -1,4 +1,4 @@
-"use client"; // Bắt buộc phải có dòng này để dùng React Hooks và thao tác với trình duyệt
+"use client";
 
 import { useState } from "react";
 import { ethers } from "ethers";
