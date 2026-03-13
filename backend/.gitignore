@@ -1,17 +1,17 @@
-# Thư mục chứa thư viện (thủ phạm chính gây ra hàng ngàn file Git)
+# Thư viện Node.js (Rất nặng)
 node_modules/
 
-# Các file biên dịch và bộ nhớ đệm của Hardhat
+# File chứa biến môi trường (Bảo mật tuyệt đối)
+.env
+.env.*
+
+# Các file biên dịch và cache do Hardhat tự sinh ra
 cache/
 artifacts/
 typechain/
 typechain-types/
 
-# Các file môi trường chứa khóa bí mật (Cực kỳ quan trọng)
-.env
-.env.*
-
-# Các file báo cáo và log hệ thống
+# Các file log và báo cáo kiểm thử
 coverage/
 coverage.json
 *.log
