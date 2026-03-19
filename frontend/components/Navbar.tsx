@@ -18,7 +18,24 @@ export default function Navbar() {
   const pathname = usePathname();
   const isLandingPage = pathname === "/";   
 
-  // Hiệu ứng: Click ra ngoài để đóng Dropdown
+  // 1. Dùng useEffect này để tự động kết nối lại ví khi người dùng F5 trang
+  useEffect(() => {
+    const checkConnection = async () => {
+      if (typeof window !== "undefined" && (window as any).ethereum) {
+        const accounts = await (window as any).ethereum.request({ method: 'eth_accounts' });
+        // Nếu MetaMask báo là vẫn đang kết nối -> Tự động đổ dữ liệu vào Navbar
+        if (accounts.length > 0) {
+          setWalletAddress(accounts[0]);
+          const provider = new ethers.BrowserProvider((window as any).ethereum);
+          const balanceWei = await provider.getBalance(accounts[0]);
+          setBalance(parseFloat(ethers.formatEther(balanceWei)).toFixed(4));
+        }
+      }
+    };
+    checkConnection();
+  }, []);
+
+  // 2. Cái useEffect cũ (click ra ngoài để đóng Dropdown) giữ nguyên
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
       if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
