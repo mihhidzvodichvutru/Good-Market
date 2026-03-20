@@ -278,6 +278,17 @@ export default function MintNFT() {
               <label className="block text-sm font-bold text-gray-300 mb-2">Tên tác phẩm <span className="text-red-500">*</span></label>
               <input type="text" value={name} onChange={(e) => setName(e.target.value)} placeholder="Tên sẽ tự điền nếu để trống..." className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-3 text-white focus:border-blue-500 outline-none" required />
             </div>
+            <div>
+              <label className="block text-sm font-bold text-gray-300 mb-2">Mô tả tác phẩm</label>
+              <textarea 
+                value={description} 
+                onChange={(e) => setDescription(e.target.value)} 
+                placeholder="Kể câu chuyện về tác phẩm của bạn, ý nghĩa, cảm hứng..." 
+                rows={4}
+                className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-3 text-white focus:border-blue-500 outline-none resize-none" 
+              />
+            </div>
+            {/* --------------------------------- */}
 
             <div>
               <label className="block text-sm font-bold text-gray-300 mb-2">Giá niêm yết (ETH) <span className="text-red-500">*</span></label>
