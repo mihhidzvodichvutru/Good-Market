@@ -191,7 +191,7 @@ export default function NFTDetails({ params }: { params: Promise<{ id: string }>
     <div className="min-h-screen bg-gray-900 text-white py-8 px-4 md:px-8">
       <div className="max-w-7xl mx-auto">
         <Link href="/explore" className="inline-flex items-center gap-2 text-gray-400 hover:text-white mb-8 transition-colors group">
-          <ArrowLeft size={20} className="group-hover:-translate-x-1 transition-transform" />  Quai lại danh sách
+          <ArrowLeft size={20} className="group-hover:-translate-x-1 transition-transform" />  Quay lại danh sách
         </Link>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-12">

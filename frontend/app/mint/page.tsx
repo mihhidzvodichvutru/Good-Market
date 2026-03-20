@@ -1,25 +1,37 @@
 "use client";
 
 import { useState, useRef } from "react";
-import { UploadCloud, X, Image as ImageIcon, Video, Music } from "lucide-react";
+import { UploadCloud, X, Image as ImageIcon, Video, Music, ImagePlus } from "lucide-react";
 import { supabase } from "../../lib/supabase"; 
 import { useRouter } from "next/navigation"; 
 
 export default function MintNFT() {
   const router = useRouter();
+  
+  // --- STATE CHO FILE CHÍNH ---
   const [file, setFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
-  // Thêm State để lưu trữ loại file đang upload
   const [mediaType, setMediaType] = useState<"image" | "video" | "audio">("image");
   
+  // --- STATE CHO ẢNH BÌA (COVER IMAGE) ---
+  const [coverFile, setCoverFile] = useState<File | null>(null);
+  const [coverPreviewUrl, setCoverPreviewUrl] = useState<string | null>(null);
+
+  // --- STATE THÔNG TIN ---
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [price, setPrice] = useState("");
   const [isMinting, setIsMinting] = useState(false); 
 
   const [isDragging, setIsDragging] = useState(false);
+  const [isDraggingCover, setIsDraggingCover] = useState(false);
+  
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const coverInputRef = useRef<HTMLInputElement>(null);
 
+  // ==========================================
+  // LOGIC XỬ LÝ FILE CHÍNH
+  // ==========================================
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) handleSetFile(e.target.files[0]);
   };
@@ -30,12 +42,13 @@ export default function MintNFT() {
     if (e.dataTransfer.files && e.dataTransfer.files[0]) handleSetFile(e.dataTransfer.files[0]);
   };
 
-// LOGIC NHẬN DIỆN LOẠI FILE VÀ TỰ ĐỘNG ĐIỀN TÊN
   const handleSetFile = (selectedFile: File) => {
     const fileType = selectedFile.type;
     
     if (fileType.startsWith("image/")) {
       setMediaType("image");
+      // Nếu đổi lại thành ảnh, ta xóa dữ liệu ảnh bìa (vì ảnh thường không cần bìa)
+      removeCover(); 
     } else if (fileType.startsWith("video/")) {
       setMediaType("video");
     } else if (fileType.startsWith("audio/")) {
@@ -48,30 +61,61 @@ export default function MintNFT() {
     setFile(selectedFile);
     setPreviewUrl(URL.createObjectURL(selectedFile));
 
-    // 1. Lấy tên gốc của file
-    const originalName = selectedFile.name; 
-    
-    // 2. Cắt bỏ đuôi mở rộng (VD: "bức tranh đẹp.png" -> "bức tranh đẹp")
-    // Dùng Regex tìm dấu chấm cuối cùng và xóa mọi thứ sau nó
-    const nameWithoutExtension = originalName.replace(/\.[^/.]+$/, ""); 
-    
-    // 3. Tự động ném vào ô Tên tác phẩm (nếu người dùng chưa nhập gì)
-    // Dùng if (!name) để tránh việc vô tình xóa mất tên người dùng đã lỡ gõ trước đó
-    if (!name) {
-      setName(nameWithoutExtension);
-    }
+    // Tính năng "Độ lười" - Tự động điền tên
+    const nameWithoutExtension = selectedFile.name.replace(/\.[^/.]+$/, ""); 
+    if (!name) setName(nameWithoutExtension);
   };
 
   const removeFile = () => {
     setFile(null);
     setPreviewUrl(null);
+    setMediaType("image");
+    removeCover();
     if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
+  // ==========================================
+  // LOGIC XỬ LÝ ẢNH BÌA (COVER)
+  // ==========================================
+  const handleCoverChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) handleSetCover(e.target.files[0]);
+  };
+
+  const handleCoverDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setIsDraggingCover(false);
+    if (e.dataTransfer.files && e.dataTransfer.files[0]) handleSetCover(e.dataTransfer.files[0]);
+  };
+
+  const handleSetCover = (selectedFile: File) => {
+    if (!selectedFile.type.startsWith("image/")) {
+      alert("Ảnh bìa bắt buộc phải là file hình ảnh (JPG/PNG)!");
+      return;
+    }
+    setCoverFile(selectedFile);
+    setCoverPreviewUrl(URL.createObjectURL(selectedFile));
+  };
+
+  const removeCover = () => {
+    setCoverFile(null);
+    setCoverPreviewUrl(null);
+    if (coverInputRef.current) coverInputRef.current.value = "";
+  };
+
+  // ==========================================
+  // LOGIC GỬI LÊN DATABASE
+  // ==========================================
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    
     if (!file || !name || !price) {
-      alert("Vui lòng điền đầy đủ thông tin và chọn file!");
+      alert("Vui lòng điền đầy đủ thông tin và chọn file gốc!");
+      return;
+    }
+
+    // Ràng buộc: Nếu là nhạc thì BẮT BUỘC phải có ảnh bìa
+    if (mediaType === "audio" && !coverFile) {
+      alert("🎧 Vui lòng tải lên Ảnh bìa Album cho bản nhạc của bạn!");
       return;
     }
 
@@ -85,14 +129,22 @@ export default function MintNFT() {
 
         setIsMinting(true);
 
-        // --- GIẢ LẬP TRẢ VỀ LINK IPFS TƯƠNG ỨNG VỚI LOẠI FILE ---
-        // (Để web hiển thị đúng trước khi BE làm xong API)
+        // --- GIẢ LẬP TRẢ VỀ LINK IPFS CHO 2 FILE ---
         let fakeIpfsLink = "";
-        if (mediaType === "image") fakeIpfsLink = "https://images.unsplash.com/photo-1620641788421-7a1c342ea42e?q=80&w=500";
-        if (mediaType === "video") fakeIpfsLink = "https://www.w3schools.com/html/mov_bbb.mp4"; // Link video test
-        if (mediaType === "audio") fakeIpfsLink = "https://www.w3schools.com/html/horse.ogg"; // Link audio test
+        let fakeCoverLink = null; 
+
+        if (mediaType === "image") {
+          fakeIpfsLink = "https://images.unsplash.com/photo-1620641788421-7a1c342ea42e?q=80&w=500";
+        } else if (mediaType === "video") {
+          fakeIpfsLink = "https://cdn.pixabay.com/video/2019/12/11/29888-378310036_tiny.mp4"; // Video đường phố
+          if (coverFile) fakeCoverLink = "https://images.unsplash.com/photo-1536440136628-849c177e76a1?q=80&w=500"; // Ảnh bìa video giả lập
+        } else if (mediaType === "audio") {
+          fakeIpfsLink = "https://www.w3schools.com/html/horse.ogg";
+          // Giả lập link ảnh bìa nghệ thuật cho nhạc
+          fakeCoverLink = "https://images.unsplash.com/photo-1614613535308-eb5fbd3d2c17?q=80&w=500"; 
+        }
         
-        // GHI DỮ LIỆU VÀO SUPABASE (Gửi kèm media_type)
+        // GHI DỮ LIỆU VÀO SUPABASE CÓ CỘT COVER_IMAGE MỚI
         const { error } = await supabase
           .from('nfts')
           .insert([
@@ -101,7 +153,8 @@ export default function MintNFT() {
               price: parseFloat(price),
               owner: accounts[0],
               image: fakeIpfsLink, 
-              media_type: mediaType, // <--- THÊM DÒNG NÀY ĐỂ LƯU PHÂN LOẠI
+              media_type: mediaType,
+              cover_image: fakeCoverLink, // <--- TRUYỀN ẢNH BÌA XUỐNG DB
               is_trending: false
             }
           ]);
@@ -121,31 +174,22 @@ export default function MintNFT() {
     }
   };
 
-  // Hàm render giao diện xem trước (Preview) tùy theo loại file
   const renderPreview = () => {
     if (!previewUrl) return null;
-
     return (
       <div className="relative w-full h-full group flex items-center justify-center bg-gray-900 rounded-3xl overflow-hidden">
-        {mediaType === "image" && (
-          <img src={previewUrl} alt="Preview" className="w-full h-full object-cover" />
-        )}
-        {mediaType === "video" && (
-          <video src={previewUrl} controls className="w-full h-full object-contain bg-black" />
-        )}
+        {mediaType === "image" && <img src={previewUrl} alt="Preview" className="w-full h-full object-cover" />}
+        {mediaType === "video" && <video src={previewUrl} controls className="w-full h-full object-contain bg-black" />}
         {mediaType === "audio" && (
           <div className="flex flex-col items-center gap-4 p-6 w-full">
-            <div className="w-24 h-24 bg-gradient-to-tr from-purple-500 to-blue-500 rounded-full animate-[spin_4s_linear_infinite] flex items-center justify-center shadow-lg">
+            <div className="w-24 h-24 bg-gradient-to-tr from-purple-500 to-blue-500 rounded-full animate-spin-slow flex items-center justify-center shadow-lg">
               <div className="w-6 h-6 bg-gray-900 rounded-full"></div>
             </div>
             <audio src={previewUrl} controls className="w-full max-w-[250px]" />
           </div>
         )}
-
         <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
-          <button type="button" onClick={removeFile} className="bg-red-500/80 text-white p-2 rounded-full hover:bg-red-500 hover:scale-110">
-            <X size={20} />
-          </button>
+          <button type="button" onClick={removeFile} className="bg-red-500/80 text-white p-2 rounded-full hover:bg-red-500 hover:scale-110"><X size={20} /></button>
         </div>
       </div>
     );
@@ -161,59 +205,77 @@ export default function MintNFT() {
 
         <form onSubmit={handleSubmit} className="grid grid-cols-1 lg:grid-cols-2 gap-12">
           
-          {/* CỘT TRÁI: Khu vực kéo thả */}
-          <div>
-            <h2 className="text-xl font-bold mb-4 flex items-center gap-2">
-              <UploadCloud className="text-blue-400" /> Tệp đa phương tiện <span className="text-red-500">*</span>
-            </h2>
-            <p className="text-sm text-gray-400 mb-4 flex gap-3">
-              <span className="flex items-center gap-1"><ImageIcon size={14}/> JPG/PNG</span>
-              <span className="flex items-center gap-1"><Video size={14}/> MP4</span>
-              <span className="flex items-center gap-1"><Music size={14}/> MP3/WAV</span>
-            </p>
-
-            <div
-              className={`relative flex flex-col items-center justify-center w-full aspect-square md:aspect-[4/3] rounded-3xl border-2 border-dashed transition-all duration-300 ${
-                isDragging ? "border-blue-500 bg-blue-500/10 scale-[1.02]" : "border-gray-600 bg-gray-800/50 hover:bg-gray-800 hover:border-gray-500"
-              }`}
-              onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
-              onDragLeave={() => setIsDragging(false)}
-              onDrop={handleDrop}
-              onClick={() => !previewUrl && fileInputRef.current?.click()}
-            >
-              {/* Cập nhật accept để lấy mọi định dạng */}
-              <input 
-                type="file" 
-                ref={fileInputRef} 
-                onChange={handleFileChange} 
-                className="hidden" 
-                accept="image/*,video/*,audio/*"
-              />
-              
-              {previewUrl ? renderPreview() : (
-                <div className="flex flex-col items-center justify-center text-center p-6 cursor-pointer">
-                  <div className="flex gap-2 mb-4">
-                    <div className="w-12 h-12 bg-blue-500/20 rounded-xl flex items-center justify-center"><ImageIcon className="text-blue-400" /></div>
-                    <div className="w-12 h-12 bg-purple-500/20 rounded-xl flex items-center justify-center"><Video className="text-purple-400" /></div>
-                    <div className="w-12 h-12 bg-green-500/20 rounded-xl flex items-center justify-center"><Music className="text-green-400" /></div>
+          {/* CỘT TRÁI: Khu vực tải file */}
+          <div className="flex flex-col gap-6">
+            
+            {/* FILE GỐC (Original Media) */}
+            <div>
+              <h2 className="text-xl font-bold mb-4 flex items-center gap-2">
+                <UploadCloud className="text-blue-400" /> Tệp gốc (Media) <span className="text-red-500">*</span>
+              </h2>
+              <div
+                className={`relative flex flex-col items-center justify-center w-full aspect-square md:aspect-[4/3] rounded-3xl border-2 border-dashed transition-all duration-300 ${
+                  isDragging ? "border-blue-500 bg-blue-500/10 scale-[1.02]" : "border-gray-600 bg-gray-800/50 hover:bg-gray-800 hover:border-gray-500"
+                }`}
+                onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
+                onDragLeave={() => setIsDragging(false)}
+                onDrop={handleDrop}
+                onClick={() => !previewUrl && fileInputRef.current?.click()}
+              >
+                <input type="file" ref={fileInputRef} onChange={handleFileChange} className="hidden" accept="image/*,video/*,audio/*" />
+                {previewUrl ? renderPreview() : (
+                  <div className="flex flex-col items-center justify-center text-center p-6 cursor-pointer">
+                    <div className="flex gap-2 mb-4">
+                      <div className="w-12 h-12 bg-blue-500/20 rounded-xl flex items-center justify-center"><ImageIcon className="text-blue-400" /></div>
+                      <div className="w-12 h-12 bg-purple-500/20 rounded-xl flex items-center justify-center"><Video className="text-purple-400" /></div>
+                      <div className="w-12 h-12 bg-green-500/20 rounded-xl flex items-center justify-center"><Music className="text-green-400" /></div>
+                    </div>
+                    <p className="text-lg font-bold text-gray-200">Nhấp để chọn tệp gốc</p>
                   </div>
-                  <p className="text-lg font-bold text-gray-200">Nhấp để chọn tệp</p>
-                  <p className="text-sm text-gray-400">hoặc kéo thả vào đây</p>
-                </div>
-              )}
+                )}
+              </div>
             </div>
+
+            {/* ẢNH BÌA ALBUM (Chỉ hiện khi file gốc là Nhạc hoặc Video) */}
+            {(mediaType === "audio" || mediaType === "video") && (
+              <div className="animate-in fade-in slide-in-from-top-4 duration-500">
+                <h2 className="text-lg font-bold mb-3 flex items-center gap-2 text-gray-300">
+                  <ImagePlus className="text-green-400" size={20} /> Ảnh bìa Album <span className="text-red-500">*</span>
+                </h2>
+                <div
+                  className={`relative flex flex-col items-center justify-center w-full h-40 rounded-2xl border-2 border-dashed transition-all duration-300 ${
+                    isDraggingCover ? "border-green-500 bg-green-500/10 scale-[1.02]" : "border-gray-600 bg-gray-800/50 hover:bg-gray-800 hover:border-gray-500"
+                  }`}
+                  onDragOver={(e) => { e.preventDefault(); setIsDraggingCover(true); }}
+                  onDragLeave={() => setIsDraggingCover(false)}
+                  onDrop={handleCoverDrop}
+                  onClick={() => !coverPreviewUrl && coverInputRef.current?.click()}
+                >
+                  <input type="file" ref={coverInputRef} onChange={handleCoverChange} className="hidden" accept="image/*" />
+                  {coverPreviewUrl ? (
+                    <div className="relative w-full h-full group rounded-2xl overflow-hidden flex items-center justify-center bg-gray-900">
+                      <img src={coverPreviewUrl} alt="Cover Preview" className="h-full object-contain" />
+                      <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <button type="button" onClick={removeCover} className="bg-red-500/80 text-white p-1.5 rounded-full hover:bg-red-500 hover:scale-110"><X size={16} /></button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex flex-col items-center justify-center text-center p-4 cursor-pointer text-gray-400">
+                      <ImageIcon size={24} className="mb-2 text-gray-500" />
+                      <p className="text-sm font-medium text-gray-300">Tải ảnh bìa (Vuông)</p>
+                      <p className="text-xs mt-1">Sẽ dùng làm hình nền trên Spotify/Explore</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
 
-          {/* CỘT PHẢI: Form (Giữ nguyên) */}
+          {/* CỘT PHẢI: Form thông tin */}
           <div className="flex flex-col space-y-8">
             <div>
               <label className="block text-sm font-bold text-gray-300 mb-2">Tên tác phẩm <span className="text-red-500">*</span></label>
-              <input type="text" value={name} onChange={(e) => setName(e.target.value)} placeholder="VD: Bản nhạc mùa đông" className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-3 text-white focus:border-blue-500 outline-none" required />
-            </div>
-
-            <div>
-              <label className="block text-sm font-bold text-gray-300 mb-2">Mô tả chi tiết</label>
-              <textarea value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Câu chuyện đằng sau tác phẩm..." rows={4} className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-3 text-white focus:border-blue-500 outline-none resize-none" />
+              <input type="text" value={name} onChange={(e) => setName(e.target.value)} placeholder="Tên sẽ tự điền nếu để trống..." className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-3 text-white focus:border-blue-500 outline-none" required />
             </div>
 
             <div>
@@ -230,10 +292,10 @@ export default function MintNFT() {
               type="submit"
               disabled={isMinting}
               className={`w-full py-4 rounded-xl font-bold text-lg text-white transition-all duration-200 ${
-                isMinting ? "bg-gray-600 cursor-not-allowed" : "bg-gradient-to-r from-blue-600 to-purple-600 hover:scale-[1.02]"
+                isMinting ? "bg-gray-600 cursor-not-allowed" : "bg-gradient-to-r from-blue-600 to-purple-600 hover:scale-[1.02] shadow-[0_10px_20px_rgba(37,99,235,0.2)]"
               }`}
             >
-              {isMinting ? "Đang xử lý tải lên..." : "Đúc tác phẩm (Mint)"}
+              {isMinting ? "Đang đúc tác phẩm..." : "Đúc tác phẩm (Mint)"}
             </button>
           </div>
         </form>
