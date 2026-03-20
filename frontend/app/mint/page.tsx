@@ -144,17 +144,18 @@ export default function MintNFT() {
           fakeCoverLink = "https://images.unsplash.com/photo-1614613535308-eb5fbd3d2c17?q=80&w=500"; 
         }
         
-        // GHI DỮ LIỆU VÀO SUPABASE CÓ CỘT COVER_IMAGE MỚI
+        // GHI DỮ LIỆU VÀO SUPABASE 
         const { error } = await supabase
           .from('nfts')
           .insert([
             {
               name: name,
+              description: description, // <--- THÊM DÒNG NÀY ĐỂ GỬI MÔ TẢ XUỐNG DB
               price: parseFloat(price),
               owner: accounts[0],
               image: fakeIpfsLink, 
               media_type: mediaType,
-              cover_image: fakeCoverLink, // <--- TRUYỀN ẢNH BÌA XUỐNG DB
+              cover_image: fakeCoverLink,
               is_trending: false
             }
           ]);

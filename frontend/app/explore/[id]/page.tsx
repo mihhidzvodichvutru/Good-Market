@@ -9,6 +9,7 @@ import { UserCircle, Tag, Clock, Package, ArrowLeft, Loader2, DollarSign, Histor
 interface NFT {
   id: number;
   name: string;
+  description: string;
   price: number;
   owner: string;
   image: string;
@@ -142,6 +143,7 @@ export default function NFTDetails({ params }: { params: Promise<{ id: string }>
           const formattedNft: NFT = {
             id: data.id,
             name: data.name,
+            description: data.description,
             price: parseFloat(data.price),
             owner: data.owner,
             image: data.image,
@@ -264,11 +266,11 @@ export default function NFTDetails({ params }: { params: Promise<{ id: string }>
               <AudioPlayer src={nft.image} />
             )}
 
-            {/* Mô tả giả lập */}
+            {/* Mô tả thật từ Database */}
             <div className="bg-gray-800/30 p-6 rounded-2xl border border-gray-700">
-              <h3 className="text-lg font-bold mb-3 text-gray-200">Mô tả</h3>
-              <p className="text-gray-400 leading-relaxed">
-                Tác phẩm nghệ thuật đa phương tiện này được lưu trữ an toàn trên mạng lưới IPFS và xác thực bởi Smart Contract trên Blockchain. Sở hữu tác phẩm này đồng nghĩa với việc bạn nắm giữ quyền sở hữu kỹ thuật số vĩnh viễn.
+              <h3 className="text-lg font-bold mb-3 text-gray-200">Mô tả chi tiết</h3>
+              <p className="text-gray-400 leading-relaxed whitespace-pre-wrap">
+                {nft.description || "Tác giả chưa cung cấp mô tả cho tác phẩm này."}
               </p>
             </div>
 
