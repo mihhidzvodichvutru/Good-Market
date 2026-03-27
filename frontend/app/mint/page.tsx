@@ -103,7 +103,7 @@ export default function MintNFT() {
   };
 
   // ==========================================
-  // LOGIC GỬI LÊN DATABASE
+  // LOGIC GỬI LÊN DATABASE (HỖ TRỢ CHUẨN OPENSEA METADATA)
   // ==========================================
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -113,9 +113,9 @@ export default function MintNFT() {
       return;
     }
 
-    // Ràng buộc: Nếu là nhạc thì BẮT BUỘC phải có ảnh bìa
-    if (mediaType === "audio" && !coverFile) {
-      alert("🎧 Vui lòng tải lên Ảnh bìa Album cho bản nhạc của bạn!");
+    // Ràng buộc cứng: Video và Nhạc BẮT BUỘC phải có ảnh bìa
+    if ((mediaType === "audio" || mediaType === "video") && !coverFile) {
+      alert("🎧 Mảng Video/Âm thanh bắt buộc phải có Ảnh bìa (Thumbnail)!");
       return;
     }
 
@@ -129,14 +129,18 @@ export default function MintNFT() {
 
         setIsMinting(true);
 
-        // 1. Đóng gói dữ liệu để gửi đi
+        // 1. Đóng gói dữ liệu gửi đi (Gửi 1 hoặc 2 file tùy loại)
         const formData = new FormData();
-        formData.append("file", file); 
+        formData.append("file", file); // File chính
         formData.append("name", name);
         formData.append("description", description);
-        // (Tạm thời bỏ coverFile đi vì API của bạn kia chưa hỗ trợ cấu trúc này)
+        
+        // Gắn thêm ảnh bìa vào form nếu có
+        if (coverFile) {
+          formData.append("cover", coverFile); // <--- Đổi thành "cover" theo đúng lời dặn
+        }
 
-        // 2. Bắn dữ liệu sang API IPFS
+        // 2. Bắn sang API IPFS
         const uploadResponse = await fetch('/api/upload', {
           method: 'POST',
           body: formData,
@@ -148,14 +152,17 @@ export default function MintNFT() {
 
         const uploadData = await uploadResponse.json();
         
-        // --- BẮT ĐẦU BÓC HÀNH TÂY ---
+        // --- BẮT ĐẦU BÓC HÀNH TÂY (Chuẩn OpenSea) ---
         const metadataIpfsUrl = uploadData.ipfsUrl; 
         
         const gatewayUrl = metadataIpfsUrl.replace("ipfs://", "https://gateway.pinata.cloud/ipfs/");
         const metadataResponse = await fetch(gatewayUrl);
         const metadataJson = await metadataResponse.json();
 
-        const realMediaLink = metadataJson.image;
+        // Đọc dữ liệu từ file JSON mới của ông bạn IPFS:
+        const realCoverLink = metadataJson.image; // Luôn lấy ảnh bìa
+        // Nếu là Nhạc/Video thì lấy animation_url, nếu là Ảnh thì xài luôn link ảnh
+        const realMediaLink = metadataJson.animation_url || metadataJson.image; 
         // ---------------------------
 
         // 3. GHI DỮ LIỆU THẬT VÀO SUPABASE 
@@ -167,7 +174,8 @@ export default function MintNFT() {
               description: description,
               price: parseFloat(price),
               owner: accounts[0],
-              image: realMediaLink, 
+              image: realMediaLink,      // Cột này để trình duyệt web phát Nhạc/Video/Ảnh
+              cover_image: realCoverLink, // Cột này lưu dự phòng Ảnh Bìa để sau trang trí UI
               media_type: mediaType,
               is_trending: false
             }
@@ -176,7 +184,7 @@ export default function MintNFT() {
         if (dbError) throw dbError;
 
         alert(`🎉 Đúc tác phẩm ${mediaType.toUpperCase()} thành công lên IPFS!`);
-        router.push('/explore'); 
+        window.location.href = '/explore'; // Đẩy về trang khám phá
         
       } catch (error: any) {
         console.error("Lỗi:", error);

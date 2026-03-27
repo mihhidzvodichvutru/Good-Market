@@ -11,6 +11,7 @@ interface NFT {
   price: number;
   owner: string;
   image: string; 
+  coverImage?: string;
   mediaType: "image" | "video" | "audio";
   isTrending: boolean;
   createdAt: string; 
@@ -27,7 +28,7 @@ export default function Explore() {
   // ==========================================
   // BƯỚC 1: HÀM GIẢI MÃ LINK IPFS CHO TRÌNH DUYỆT
   // ==========================================
-  const resolveIpfsUrl = (url: string) => {
+  const resolveIpfsUrl = (url: string | undefined) => {
     if (!url) return "";
     if (url.startsWith("ipfs://")) {
       // Chuyển ipfs:// thành link HTTP qua cổng Pinata
@@ -58,6 +59,7 @@ export default function Explore() {
             price: parseFloat(item.price),
             owner: item.owner,
             image: item.image,
+            coverImage: item.cover_image, // <--- THÊM DÒNG NÀY
             mediaType: item.media_type || "image", 
             isTrending: item.is_trending,
             createdAt: item.created_at,
@@ -155,36 +157,50 @@ export default function Explore() {
                   {nft.mediaType === "video" && (
                     <div className="w-full h-full relative">
                       <video 
-                        // BƯỚC 2: BỌC HÀM XỬ LÝ VÀO LINK VIDEO
                         src={resolveIpfsUrl(nft.image)} 
+                        poster={resolveIpfsUrl(nft.coverImage)} // <--- TRỌNG TÂM: Gắn ảnh bìa làm thumbnail
                         muted 
                         loop 
                         playsInline
                         className="w-full h-full object-cover"
                         onMouseOver={(e) => {
                           const video = e.target as HTMLVideoElement;
-                          video.play().catch(() => {});
+                          video.play().catch(() => {}); // Bắt đầu phát khi hover
                         }}
                         onMouseOut={(e) => {
                           const video = e.target as HTMLVideoElement;
-                          if (!video.paused) {
-                            video.pause();
-                          }
+                          video.pause(); // 1. Dừng phát
+                          video.currentTime = 0; // 2. Tua lại về giây số 0 (để lần sau hover nó chạy từ đầu)
+                          video.load(); // 3. VŨ KHÍ TỐI THƯỢNG: Reset lại thẻ video để ép hiện lại Poster!
                         }}
                       />
-                      <div className="absolute top-3 right-3 bg-black/50 p-1.5 rounded-lg text-white"> <VideoIcon size={16}/> </div>
+                      <div className="absolute top-3 right-3 bg-black/50 p-1.5 rounded-lg text-white backdrop-blur-sm"> 
+                        <VideoIcon size={16}/> 
+                      </div>
                     </div>
                   )}
 
                   {nft.mediaType === "audio" && (
-                    <div className="w-full h-full flex flex-col items-center justify-center bg-gray-900 gap-4 p-6 relative">
-                       <div className="w-20 h-20 bg-gradient-to-tr from-green-500/20 to-blue-500/20 rounded-full flex items-center justify-center border border-green-500/30 animate-spin-slow">
-                          <Music className="text-green-400" size={32} />
-                       </div>
-                       <div className="absolute top-3 right-3 bg-black/50 p-1.5 rounded-lg text-white"> <Music size={16}/> </div>
-                       <div className="absolute inset-0 flex items-center justify-center group-hover:scale-110 transition-transform">
-                           <div className="w-16 h-16 rounded-full bg-blue-500/20 backdrop-blur-sm flex items-center justify-center border border-blue-500/50 shadow-xl">
-                               <Play className="fill-blue-400 text-blue-400" size={32} />
+                    <div className="w-full h-full relative overflow-hidden flex items-center justify-center bg-gray-900 group">
+                      {/* GỌI ẢNH BÌA RA Ở ĐÂY */}
+                      {nft.coverImage ? (
+                        <img 
+                          src={resolveIpfsUrl(nft.coverImage)} 
+                          alt="Audio Cover" 
+                          className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700 ease-in-out opacity-70 group-hover:opacity-100" 
+                        />
+                      ) : (
+                        <div className="w-20 h-20 bg-gradient-to-tr from-green-500/20 to-blue-500/20 rounded-full flex items-center justify-center border border-green-500/30 animate-spin-slow">
+                           <Music className="text-green-400" size={32} />
+                        </div>
+                      )}
+                      
+                      <div className="absolute top-3 right-3 bg-black/50 p-1.5 rounded-lg text-white backdrop-blur-sm"> <Music size={16}/> </div>
+                      
+                      {/* Hiệu ứng Nút Play khi Hover */}
+                      <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                           <div className="w-16 h-16 rounded-full bg-blue-500/90 backdrop-blur-sm flex items-center justify-center shadow-2xl transform scale-90 group-hover:scale-100 transition-all">
+                               <Play className="fill-white text-white ml-1" size={28} />
                            </div>
                        </div>
                     </div>
