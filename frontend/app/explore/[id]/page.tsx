@@ -205,19 +205,28 @@ export default function NFTDetails({ params }: { params: Promise<{ id: string }>
   const handleDeleteNFT = async () => {
     if (!nft) return;
     
-    const confirmDelete = window.confirm("🚨 CHÚ Ý: Hành động này sẽ xóa dữ liệu Database và Unpin file media gốc trên IPFS Pinata. File JSON Metadata vẫn còn tồn tại (do Backend chưa dọn dẹp). Bạn có chắc chắn không?");
+    const confirmDelete = window.confirm("🚨 CHÚ Ý: Hành động này sẽ xóa dữ liệu Database và Unpin TOÀN BỘ file gốc (Media + Ảnh bìa) trên IPFS Pinata. Bạn có chắc chắn không?");
     if (!confirmDelete) return;
 
     try {
-      // 1. Gửi CID media (CID của ảnh/video/nhạc gốc) đến API xóa
-      console.log("Đang unpin media trên Pinata:", nft.image);
+      // 1. Gom các link CID cần xóa vào một mảng
+      const cidsToDelete = [nft.image]; // Luôn đưa file media chính (ảnh/video/nhạc) vào danh sách trảm
+      
+      // Nếu NFT này có ảnh bìa (video hoặc nhạc), đưa luôn vào danh sách
+      if (nft.coverImage) {
+        cidsToDelete.push(nft.coverImage); 
+      }
+
+      console.log("Đang unpin danh sách file trên Pinata:", cidsToDelete);
+
+      // 2. Gọi API xóa với cấu trúc mới (mảng cids)
       await fetch('/api/delete', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ cid: nft.image })
+        body: JSON.stringify({ cids: cidsToDelete }) // Đổi nhãn từ 'cid' thành 'cids'
       });
 
-      // 2. Xóa bản ghi trong Supabase
+      // 3. Xóa bản ghi trong Supabase
       console.log("Đang xóa bản ghi Database cho NFT id:", nft.id);
       const { error: dbError } = await supabase
         .from('nfts')
@@ -226,7 +235,7 @@ export default function NFTDetails({ params }: { params: Promise<{ id: string }>
 
       if (dbError) throw dbError;
 
-      alert("🗑️ Bản ghi Database đã được xóa. File media gốc đã được unpin khỏi Pinata.");
+      alert("🗑️ Bản ghi Database đã được xóa. Toàn bộ file gốc đã được dọn dẹp sạch sẽ khỏi Pinata!");
       window.location.href = '/explore';
 
     } catch (error: any) {
