@@ -1,100 +1,43 @@
+// File: app/api/delete/route.ts
 import { NextResponse } from "next/server";
-
-// Hàm phụ trợ: Tái sử dụng để đẩy file (giữ nguyên không đổi)
-async function uploadFileToPinata(file: File) {
-  const formData = new FormData();
-  formData.append("file", file);
-
-  const res = await fetch("https://api.pinata.cloud/pinning/pinFileToIPFS", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${process.env.PINATA_JWT}`,
-    },
-    body: formData,
-  });
-
-  if (!res.ok) throw new Error("Lỗi đẩy file lên Pinata");
-  const data = await res.json();
-  return `ipfs://${data.IpfsHash}`;
-}
 
 export async function POST(request: Request) {
   try {
-    const data = await request.formData();
-    
-    // Nhận dữ liệu
-    const file: File | null = data.get("file") as unknown as File; // File gốc (Ảnh/Nhạc/Video)
-    const cover: File | null = data.get("cover") as unknown as File; // Ảnh bìa (Chỉ cần khi up Nhạc/Video)
-    const name = data.get("name") as string;
-    const description = data.get("description") as string;
+    const body = await request.json();
+    let cidsToDelete: string[] = [];
 
-    if (!file) {
-      return NextResponse.json({ error: "Thiếu file tác phẩm gốc!" }, { status: 400 });
+    // Hỗ trợ cả 2 chuẩn: Gửi 1 chuỗi 'cid' hoặc gửi 1 mảng 'cids'
+    if (body.cid) cidsToDelete.push(body.cid);
+    if (body.cids && Array.isArray(body.cids)) cidsToDelete = [...cidsToDelete, ...body.cids];
+
+    if (cidsToDelete.length === 0) {
+      return NextResponse.json({ error: "Thiếu danh sách mã CID cần xóa!" }, { status: 400 });
     }
 
-    // TỰ ĐỘNG PHÂN LOẠI FILE DỰA VÀO ĐỊNH DẠNG
-    const isImage = file.type.startsWith("image/");
-    const isMedia = file.type.startsWith("video/") || file.type.startsWith("audio/");
+    // Làm sạch toàn bộ danh sách (cắt bỏ chữ ipfs:// và lấy đúng mã hash)
+    const cleanCids = cidsToDelete
+      .filter(Boolean) // Loại bỏ các giá trị null/rỗng
+      .map(cid => cid.replace("ipfs://", "").replace("https://gateway.pinata.cloud/ipfs/", "").split("/")[0]);
 
-    let coverUrl = "";
-    let mediaUrl = "";
-
-    // XỬ LÝ THEO KỊCH BẢN
-    if (isImage) {
-      // Kịch bản 1: Up Ảnh NFT (Không cần file cover phụ)
-      console.log("Phát hiện up Ảnh! Đang đẩy lên IPFS...");
-      coverUrl = await uploadFileToPinata(file); // Lấy luôn ảnh này làm cover
-    } 
-    else if (isMedia) {
-      // Kịch bản 2: Up Video hoặc Âm thanh (Bắt buộc phải có ảnh cover)
-      if (!cover) {
-        return NextResponse.json({ error: "Tác phẩm Nhạc/Video bắt buộc phải có Ảnh bìa!" }, { status: 400 });
-      }
-      console.log("Phát hiện up Media! Đang đẩy ảnh bìa...");
-      coverUrl = await uploadFileToPinata(cover);
+    // Chạy vòng lặp để "khai tử" từng file một trên Pinata
+    for (const cid of cleanCids) {
+      console.log(`Đang dọn dẹp rác: ${cid}`);
+      const res = await fetch(`https://api.pinata.cloud/pinning/unpin/${cid}`, {
+        method: "DELETE",
+        headers: {
+          Authorization: `Bearer ${process.env.PINATA_JWT}`,
+        },
+      });
       
-      console.log("Đang đẩy file Media gốc...");
-      mediaUrl = await uploadFileToPinata(file);
-    } 
-    else {
-      // Chặn các file rác (như .exe, .pdf, .docx...)
-      return NextResponse.json({ error: "Chỉ hỗ trợ up Ảnh, Nhạc và Video!" }, { status: 400 });
+      // Nếu file đã bị xóa từ trước rồi thì thôi, không báo lỗi làm sập web
+      if (!res.ok) {
+        console.warn(`Cảnh báo: Không thể xóa ${cid} (Có thể đã bị xóa từ trước).`);
+      }
     }
 
-    // ĐÓNG GÓI METADATA CHUẨN OPENSEA
-    const metadata: any = {
-      name: name || "Tác phẩm ẩn danh",
-      description: description || "",
-      image: coverUrl, // Luôn phải có khóa này (là ảnh gốc hoặc ảnh bìa)
-    };
-
-    // Chỉ khi nào có file Media thì mới thêm dòng "animation_url"
-    if (mediaUrl) {
-      metadata.animation_url = mediaUrl;
-    }
-
-    // Đẩy Metadata lên Pinata
-    console.log("Đang đẩy Hộ chiếu (JSON Metadata)...");
-    const jsonRes = await fetch("https://api.pinata.cloud/pinning/pinJSONToIPFS", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${process.env.PINATA_JWT}`,
-      },
-      body: JSON.stringify({
-        pinataContent: metadata,
-        pinataMetadata: { name: `${name}_metadata.json` },
-      }),
-    });
-
-    if (!jsonRes.ok) throw new Error("Lỗi đẩy file JSON");
-    const jsonData = await jsonRes.json();
-
-    // Hoàn thành xuất sắc!
-    return NextResponse.json({ ipfsUrl: `ipfs://${jsonData.IpfsHash}` });
-    
+    return NextResponse.json({ success: true, message: `Đã dọn dẹp sạch sẽ ${cleanCids.length} file khỏi Pinata!` });
   } catch (error: any) {
-    console.error("Lỗi hệ thống IPFS:", error);
+    console.error("Lỗi xóa IPFS:", error);
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
