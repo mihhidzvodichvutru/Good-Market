@@ -129,45 +129,59 @@ export default function MintNFT() {
 
         setIsMinting(true);
 
-        // --- GIẢ LẬP TRẢ VỀ LINK IPFS CHO 2 FILE ---
-        let fakeIpfsLink = "";
-        let fakeCoverLink = null; 
+        // 1. Đóng gói dữ liệu để gửi đi
+        const formData = new FormData();
+        formData.append("file", file); 
+        formData.append("name", name);
+        formData.append("description", description);
+        // (Tạm thời bỏ coverFile đi vì API của bạn kia chưa hỗ trợ cấu trúc này)
 
-        if (mediaType === "image") {
-          fakeIpfsLink = "https://images.unsplash.com/photo-1620641788421-7a1c342ea42e?q=80&w=500";
-        } else if (mediaType === "video") {
-          fakeIpfsLink = "https://cdn.pixabay.com/video/2019/12/11/29888-378310036_tiny.mp4"; // Video đường phố
-          if (coverFile) fakeCoverLink = "https://images.unsplash.com/photo-1536440136628-849c177e76a1?q=80&w=500"; // Ảnh bìa video giả lập
-        } else if (mediaType === "audio") {
-          fakeIpfsLink = "https://www.w3schools.com/html/horse.ogg";
-          // Giả lập link ảnh bìa nghệ thuật cho nhạc
-          fakeCoverLink = "https://images.unsplash.com/photo-1614613535308-eb5fbd3d2c17?q=80&w=500"; 
+        // 2. Bắn dữ liệu sang API IPFS
+        const uploadResponse = await fetch('/api/upload', {
+          method: 'POST',
+          body: formData,
+        });
+
+        if (!uploadResponse.ok) {
+          throw new Error("Lỗi khi tải file lên mạng IPFS Pinata!");
         }
+
+        const uploadData = await uploadResponse.json();
         
-        // GHI DỮ LIỆU VÀO SUPABASE 
-        const { error } = await supabase
+        // --- BẮT ĐẦU BÓC HÀNH TÂY ---
+        const metadataIpfsUrl = uploadData.ipfsUrl; 
+        
+        const gatewayUrl = metadataIpfsUrl.replace("ipfs://", "https://gateway.pinata.cloud/ipfs/");
+        const metadataResponse = await fetch(gatewayUrl);
+        const metadataJson = await metadataResponse.json();
+
+        const realMediaLink = metadataJson.image;
+        // ---------------------------
+
+        // 3. GHI DỮ LIỆU THẬT VÀO SUPABASE 
+        const { error: dbError } = await supabase
           .from('nfts')
           .insert([
             {
               name: name,
-              description: description, // <--- THÊM DÒNG NÀY ĐỂ GỬI MÔ TẢ XUỐNG DB
+              description: description,
               price: parseFloat(price),
               owner: accounts[0],
-              image: fakeIpfsLink, 
+              image: realMediaLink, 
               media_type: mediaType,
-              cover_image: fakeCoverLink,
               is_trending: false
             }
           ]);
 
-        if (error) throw error;
+        if (dbError) throw dbError;
 
-        alert(`🎉 Đúc tác phẩm ${mediaType.toUpperCase()} thành công!`);
+        alert(`🎉 Đúc tác phẩm ${mediaType.toUpperCase()} thành công lên IPFS!`);
         router.push('/explore'); 
         
       } catch (error: any) {
         console.error("Lỗi:", error);
         alert("Có lỗi: " + error.message);
+      } finally {
         setIsMinting(false);
       }
     } else {
@@ -201,7 +215,7 @@ export default function MintNFT() {
       <div className="max-w-5xl mx-auto">
         <div className="mb-10">
           <h1 className="text-4xl font-extrabold tracking-tight mb-2">Đúc tác phẩm mới</h1>
-          <p className="text-gray-400 text-lg">Hỗ trợ Ảnh, Video và Âm thanh. Kích thước tối đa 100MB.</p>
+          <p className="text-gray-400 text-lg">Hỗ trợ Ảnh, Video và Âm thanh. Kích thước tối đa 25MB.</p>
         </div>
 
         <form onSubmit={handleSubmit} className="grid grid-cols-1 lg:grid-cols-2 gap-12">
