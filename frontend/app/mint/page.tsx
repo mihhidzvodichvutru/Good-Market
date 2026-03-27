@@ -155,7 +155,10 @@ export default function MintNFT() {
         // --- BẮT ĐẦU BÓC HÀNH TÂY (Chuẩn OpenSea) ---
         const metadataIpfsUrl = uploadData.ipfsUrl; 
         
-        const gatewayUrl = metadataIpfsUrl.replace("ipfs://", "https://gateway.pinata.cloud/ipfs/");
+        // Bước B: Dùng cổng VIP để fetch cái file JSON đó về đọc thử (SỬA Ở ĐÂY)
+        const gateway = process.env.NEXT_PUBLIC_PINATA_GATEWAY || "https://gateway.pinata.cloud";
+        const gatewayUrl = metadataIpfsUrl.replace("ipfs://", `${gateway}/ipfs/`);
+        
         const metadataResponse = await fetch(gatewayUrl);
         const metadataJson = await metadataResponse.json();
 

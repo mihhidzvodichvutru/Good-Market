@@ -19,15 +19,16 @@ interface NFT {
   createdAt: string; 
 }
 
-// Hàm giải mã link IPFS cho trình duyệt (Sử dụng gateway Pinata xịn)
-const resolveIpfsUrl = (url: string | undefined) => {
-  if (!url) return "";
-  if (url.startsWith("ipfs://")) {
-    // Chuyển ipfs:// thành link HTTP qua cổng Pinata Gateway
-    return url.replace("ipfs://", "https://gateway.pinata.cloud/ipfs/");
-  }
-  return url;
-};
+// BƯỚC 1: HÀM GIẢI MÃ LINK IPFS (ĐÃ NÂNG CẤP LÊN CỔNG VIP)
+  const resolveIpfsUrl = (url: string | undefined) => {
+    if (!url) return "";
+    if (url.startsWith("ipfs://")) {
+      // Gọi cổng VIP từ biến môi trường. Nếu quên chưa cài thì nó xài tạm cổng Public chống cháy
+      const gateway = process.env.NEXT_PUBLIC_PINATA_GATEWAY || "https://gateway.pinata.cloud";
+      return url.replace("ipfs://", `${gateway}/ipfs/`);
+    }
+    return url; 
+  };
 
 // 2. Component Trình phát nhạc custom - GIỐNG SPOTIFY
 function AudioPlayer({ src }: { src: string }) {
