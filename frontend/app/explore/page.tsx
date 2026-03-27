@@ -2,7 +2,6 @@
 
 import Link from "next/link";
 import { useState, useEffect } from "react";
-// 1. CẬP NHẬT IMPORT: THÊM CAMERA ICON
 import { Search, Filter, TrendingUp, Clock, Music, Play, Video as VideoIcon, Camera } from "lucide-react"; 
 import { supabase } from "../../lib/supabase"; 
 
@@ -11,7 +10,7 @@ interface NFT {
   name: string;
   price: number;
   owner: string;
-  image: string; // Link file (có thể là ảnh, mp4 hoặc mp3)
+  image: string; 
   mediaType: "image" | "video" | "audio";
   isTrending: boolean;
   createdAt: string; 
@@ -24,6 +23,18 @@ export default function Explore() {
 
   const [searchQuery, setSearchQuery] = useState("");
   const [activeFilter, setActiveFilter] = useState("latest");
+
+  // ==========================================
+  // BƯỚC 1: HÀM GIẢI MÃ LINK IPFS CHO TRÌNH DUYỆT
+  // ==========================================
+  const resolveIpfsUrl = (url: string) => {
+    if (!url) return "";
+    if (url.startsWith("ipfs://")) {
+      // Chuyển ipfs:// thành link HTTP qua cổng Pinata
+      return url.replace("ipfs://", "https://gateway.pinata.cloud/ipfs/");
+    }
+    return url; 
+  };
 
   useEffect(() => {
     const fetchNFTs = async () => {
@@ -129,37 +140,30 @@ export default function Explore() {
                 
                 <div className="aspect-square bg-gray-700 relative overflow-hidden flex items-center justify-center">
                   
-                  {/* --- KHU VỰC HIỂN THỊ ĐA PHƯƠNG TIỆN ĐÃ NÂNG CẤP --- */}
-                  
-                  {/* TRƯỜNG HỢP 1: LÀ HÌNH ẢNH -> THÊM ICON CAMERA Ở GÓC */}
                   {nft.mediaType === "image" && (
                     <div className="w-full h-full relative">
                       <img 
-                        src={nft.image} 
+                        // BƯỚC 2: BỌC HÀM XỬ LÝ VÀO LINK ẢNH
+                        src={resolveIpfsUrl(nft.image)} 
                         alt={nft.name} 
                         className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700 ease-in-out"
                       />
-                      {/* Icon Camera phân loại ảnh */}
                       <div className="absolute top-3 right-3 bg-black/50 p-1.5 rounded-lg text-white"> <Camera size={16}/> </div>
                     </div>
                   )}
 
-                  {/* TRƯỜNG HỢP 2: LÀ VIDEO -> SỬA LỖI PLAY/PAUSE */}
                   {nft.mediaType === "video" && (
                     <div className="w-full h-full relative">
                       <video 
-                        src={nft.image} 
+                        // BƯỚC 2: BỌC HÀM XỬ LÝ VÀO LINK VIDEO
+                        src={resolveIpfsUrl(nft.image)} 
                         muted 
                         loop 
                         playsInline
                         className="w-full h-full object-cover"
-                        // 2. SỬA LỖI: GỌI PLAY() AN TOÀN VỚI CATCH()
                         onMouseOver={(e) => {
                           const video = e.target as HTMLVideoElement;
-                          video.play().catch(error => {
-                            // Bỏ qua lỗi play() bị hủy. Trình duyệt sẽ tự xử lý ở lần rê chuột tiếp theo.
-                            // console.log('Video play interrupted:', error.message);
-                          });
+                          video.play().catch(() => {});
                         }}
                         onMouseOut={(e) => {
                           const video = e.target as HTMLVideoElement;
@@ -172,10 +176,8 @@ export default function Explore() {
                     </div>
                   )}
 
-                  {/* TRƯỜNG HỢP 3: LÀ ÂM THANH (Giữ nguyên) */}
                   {nft.mediaType === "audio" && (
                     <div className="w-full h-full flex flex-col items-center justify-center bg-gray-900 gap-4 p-6 relative">
-                       {/* Giả sử bạn đã làm bước fix globals.css để đĩa xoay xoay */}
                        <div className="w-20 h-20 bg-gradient-to-tr from-green-500/20 to-blue-500/20 rounded-full flex items-center justify-center border border-green-500/30 animate-spin-slow">
                           <Music className="text-green-400" size={32} />
                        </div>
@@ -188,7 +190,6 @@ export default function Explore() {
                     </div>
                   )}
 
-                  {/* Tag "Hot" (Giữ nguyên) */}
                   {nft.isTrending && (
                     <div className="absolute top-3 left-3 bg-blue-600/80 backdrop-blur-md px-3 py-1.5 rounded-xl text-xs font-bold border border-white/10 flex items-center gap-1">
                       <TrendingUp size={12} /> Hot
