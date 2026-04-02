@@ -1,100 +1,88 @@
 import { NextResponse } from "next/server";
 
-// Hàm phụ trợ: Tái sử dụng để đẩy file (giữ nguyên không đổi)
+// --- [KHU VỰC 1: LÁ CHẮN CHỐNG SPAM (Rate Limiting)] ---
+const rateLimitMap = new Map<string, { count: number; startTime: number }>();
+const MAX_REQUESTS = 3; // Quá 3 lần/phút là sút
+const TIME_WINDOW = 60 * 1000;
+
+// --- [KHU VỰC 2: HÀM ĐẨY FILE LÊN IPFS] ---
 async function uploadFileToPinata(file: File) {
   const formData = new FormData();
   formData.append("file", file);
-
   const res = await fetch("https://api.pinata.cloud/pinning/pinFileToIPFS", {
     method: "POST",
-    headers: {
-      Authorization: `Bearer ${process.env.PINATA_JWT}`,
-    },
+    headers: { Authorization: `Bearer ${process.env.PINATA_JWT}` },
     body: formData,
   });
-
   if (!res.ok) throw new Error("Lỗi đẩy file lên Pinata");
   const data = await res.json();
   return `ipfs://${data.IpfsHash}`;
 }
 
+// --- [KHU VỰC 3: XỬ LÝ CHÍNH] ---
 export async function POST(request: Request) {
   try {
+    // 🛡️ BƯỚC 1: KIỂM TRA BẢO MẬT
+    const ip = request.headers.get("x-forwarded-for") || request.headers.get("x-real-ip") || "unknown_ip";
+    const currentTime = Date.now();
+    const userRecord = rateLimitMap.get(ip) || { count: 0, startTime: currentTime };
+
+    if (currentTime - userRecord.startTime > TIME_WINDOW) {
+      userRecord.count = 1;
+      userRecord.startTime = currentTime;
+    } else {
+      userRecord.count++;
+      if (userRecord.count > MAX_REQUESTS) {
+        console.warn(`🚨 Chặn IP: ${ip} vì spam nút Up đồ.`);
+        return NextResponse.json(
+          { error: "Thao tác quá nhanh người anh em! Đợi 1 phút rồi thử lại." },
+          { status: 429 }
+        );
+      }
+    }
+    rateLimitMap.set(ip, userRecord);
+
+    // 🚀 BƯỚC 2: BÊ NGUYÊN BẢN LÊN PINATA
     const data = await request.formData();
-    
-    // Nhận dữ liệu
-    const file: File | null = data.get("file") as unknown as File; // File gốc (Ảnh/Nhạc/Video)
-    const cover: File | null = data.get("cover") as unknown as File; // Ảnh bìa (Chỉ cần khi up Nhạc/Video)
+    const rawFile: File | null = data.get("file") as unknown as File;
+    const rawCover: File | null = data.get("cover") as unknown as File;
     const name = data.get("name") as string;
     const description = data.get("description") as string;
 
-    if (!file) {
-      return NextResponse.json({ error: "Thiếu file tác phẩm gốc!" }, { status: 400 });
-    }
+    if (!rawFile) return NextResponse.json({ error: "Chưa chọn file!" }, { status: 400 });
 
-    // TỰ ĐỘNG PHÂN LOẠI FILE DỰA VÀO ĐỊNH DẠNG
-    const isImage = file.type.startsWith("image/");
-    const isMedia = file.type.startsWith("video/") || file.type.startsWith("audio/");
-
+    const isImage = rawFile.type.startsWith("image/");
     let coverUrl = "";
     let mediaUrl = "";
 
-    // XỬ LÝ THEO KỊCH BẢN
     if (isImage) {
-      // Kịch bản 1: Up Ảnh NFT (Không cần file cover phụ)
-      console.log("Phát hiện up Ảnh! Đang đẩy lên IPFS...");
-      coverUrl = await uploadFileToPinata(file); // Lấy luôn ảnh này làm cover
-    } 
-    else if (isMedia) {
-      // Kịch bản 2: Up Video hoặc Âm thanh (Bắt buộc phải có ảnh cover)
-      if (!cover) {
-        return NextResponse.json({ error: "Tác phẩm Nhạc/Video bắt buộc phải có Ảnh bìa!" }, { status: 400 });
-      }
-      console.log("Phát hiện up Media! Đang đẩy ảnh bìa...");
-      coverUrl = await uploadFileToPinata(cover);
-      
-      console.log("Đang đẩy file Media gốc...");
-      mediaUrl = await uploadFileToPinata(file);
-    } 
-    else {
-      // Chặn các file rác (như .exe, .pdf, .docx...)
-      return NextResponse.json({ error: "Chỉ hỗ trợ up Ảnh, Nhạc và Video!" }, { status: 400 });
+      // Nếu là ảnh: Up thẳng bản gốc làm ảnh bìa luôn
+      coverUrl = await uploadFileToPinata(rawFile);
+    } else {
+      // Nếu là Video/Nhạc: Bắt buộc phải có ảnh đại diện đi kèm
+      if (!rawCover) return NextResponse.json({ error: "Video/Nhạc phải có ảnh bìa!" }, { status: 400 });
+      coverUrl = await uploadFileToPinata(rawCover);
+      mediaUrl = await uploadFileToPinata(rawFile); 
     }
 
-    // ĐÓNG GÓI METADATA CHUẨN OPENSEA
-    const metadata: any = {
-      name: name || "Tác phẩm ẩn danh",
-      description: description || "",
-      image: coverUrl, // Luôn phải có khóa này (là ảnh gốc hoặc ảnh bìa)
-    };
+    // ĐÓNG GÓI JSON METADATA CHUẨN WEB3
+    const metadata: any = { name: name || "", description: description || "", image: coverUrl };
+    if (mediaUrl) metadata.animation_url = mediaUrl;
 
-    // Chỉ khi nào có file Media thì mới thêm dòng "animation_url"
-    if (mediaUrl) {
-      metadata.animation_url = mediaUrl;
-    }
-
-    // Đẩy Metadata lên Pinata
-    console.log("Đang đẩy Hộ chiếu (JSON Metadata)...");
     const jsonRes = await fetch("https://api.pinata.cloud/pinning/pinJSONToIPFS", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${process.env.PINATA_JWT}`,
-      },
-      body: JSON.stringify({
-        pinataContent: metadata,
-        pinataMetadata: { name: `${name}_metadata.json` },
-      }),
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${process.env.PINATA_JWT}` },
+      body: JSON.stringify({ pinataContent: metadata, pinataMetadata: { name: `${name}_metadata.json` } }),
     });
 
-    if (!jsonRes.ok) throw new Error("Lỗi đẩy file JSON");
+    if (!jsonRes.ok) throw new Error("Lỗi đẩy file JSON lên kho!");
     const jsonData = await jsonRes.json();
-
-    // Hoàn thành xuất sắc!
+    
+    // Chốt đơn, nhả link IPFS về cho Frontend
     return NextResponse.json({ ipfsUrl: `ipfs://${jsonData.IpfsHash}` });
     
   } catch (error: any) {
-    console.error("Lỗi hệ thống IPFS:", error);
+    console.error("Lỗi Upload IPFS:", error);
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
