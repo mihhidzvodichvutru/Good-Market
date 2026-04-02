@@ -3,7 +3,7 @@ import addressesJson from "./contracts/addresses.json";
 import nftJson from "./contracts/BODOINFT.json";
 import marketplaceJson from "./contracts/NFTMarketplace.json";
 
-// 1. Trích xuất Địa chỉ (Sổ đỏ)
+// 1. Trích xuất Địa chỉ
 // LƯU Ý: Đại ca mở file addresses.json ra xem tên biến bên trong nó ghi là gì 
 // (ví dụ "NFTMarketplace" hay "Marketplace") để sửa chữ ở dưới cho khớp nhé!
 export const NFT_ADDRESS = addressesJson.BODOINFT; 

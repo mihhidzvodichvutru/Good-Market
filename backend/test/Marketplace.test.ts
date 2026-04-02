@@ -5,18 +5,17 @@ describe("Dự án NFT Marketplace - BODOI Std", function () {
   let nft: any;
   let market: any;
   let chuSan: any; // Trùm cuối lập ra sàn (nhận 1% thuế)
-  let nhat: any;   // Người bán (Huynh Nhật)
-  let hai: any;    // Khách hàng (Huynh Hải)
+  let nhat: any;   // Người bán 
+  let hai: any;    // Khách hàng 
 
   beforeEach(async function () {
     // Kéo 3 ví ra đóng vai
     [chuSan, nhat, hai] = await ethers.getSigners();
 
-    // 1. Dựng Xưởng đúc - Giữ nguyên tên gốc "BODOINFT"
+    // 1. Dựng Xưởng đúc 
     nft = await ethers.deployContract("BODOINFT");
 
-    // 2. Dựng Chợ - Giữ nguyên tên gốc "NFTMarketplace"
-    // Trùm cuối (chuSan) là người gọi lệnh này nên mặc định trở thành feeAccount
+    // 2. Dựng Chợ 
     market = await ethers.deployContract("NFTMarketplace");
   });
 
@@ -38,7 +37,7 @@ describe("Dự án NFT Marketplace - BODOI Std", function () {
     // 1. Huynh Nhật đúc NFT (Token ID sẽ là 0 vì _nextTokenId bắt đầu từ 0)
     await nft.connect(nhat).mint(linkAnh);
     
-    // 2. Cực kỳ quan trọng: Ký giấy ủy quyền cho Sàn được phép chuyển NFT đi
+    // 2. Ký giấy ủy quyền cho Sàn được phép chuyển NFT đi
     await nft.connect(nhat).setApprovalForAll(market.target, true);
 
     // ==========================================
@@ -56,14 +55,14 @@ describe("Dự án NFT Marketplace - BODOI Std", function () {
     expect(monHang.sold).to.be.false;
 
     // ==========================================
-    // HỒI 3: HUYNH HẢI XUỐNG TIỀN MUA
+    // HỒI 3: XUỐNG TIỀN MUA
     // ==========================================
     // Hệ thống tính toán tổng tiền Huynh Hải phải trả (1 ETH + 1% phí sàn)
     const tongTienPhaiTra = await market.getTotalPrice(1);
 
-    // Trọng tài đo lường dòng tiền: 
-    // - Huynh Hải mất tổng tiền
-    // - Huynh Nhật nhận đúng 1 ETH
+    //  đo lường dòng tiền: 
+    // - mua mất tổng tiền
+    // - bán nhận đúng 1 ETH
     // - Chủ sàn nhận được phần chênh lệch (phí 1%)
     await expect(market.connect(hai).buyNFT(1, { value: tongTienPhaiTra }))
       .to.changeEtherBalances(
@@ -72,12 +71,12 @@ describe("Dự án NFT Marketplace - BODOI Std", function () {
       );
 
     // ==========================================
-    // HỒI 4: NGHIỆM THU SAU GIAO DỊCH
+    // NGHIỆM THU SAU GIAO DỊCH
     // ==========================================
-    // 1. Sổ đỏ NFT đã sang tên Huynh Hải chưa?
+    // 1. Sổ đỏ NFT đã sang tên khách chưa
     expect(await nft.ownerOf(0)).to.equal(hai.address);
     // 2. Món hàng trên sàn đã được chốt sổ (sold = true) chưa?
     const monHangSauKhiBan = await market.items(1);
     expect(monHangSauKhiBan.sold).to.be.true;
   });
-});
+}); 
