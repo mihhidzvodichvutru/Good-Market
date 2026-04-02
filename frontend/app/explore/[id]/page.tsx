@@ -4,6 +4,7 @@ import { useState, useEffect, use, useRef } from "react";
 import Link from "next/link";
 import { supabase } from "../../../lib/supabase";
 import { UserCircle, Tag, Clock, Package, ArrowLeft, Loader2, DollarSign, History, Music, Play, Pause, Volume2, Video as VideoIcon, Camera } from "lucide-react";
+import toast from 'react-hot-toast';
 
 // 1. Cập nhật Model dữ liệu (Thêm coverImage)
 interface NFT {
@@ -202,32 +203,21 @@ export default function NFTDetails({ params }: { params: Promise<{ id: string }>
     fetchNFTDetails();
   }, [id]);
 
-  const handleDeleteNFT = async () => {
+  // 1. Hàm thực thi việc Xóa (Chỉ chạy khi người dùng bấm "Đồng ý" trên Toast)
+  const executeDelete = async () => {
     if (!nft) return;
-    
-    const confirmDelete = window.confirm("🚨 CHÚ Ý: Hành động này sẽ xóa dữ liệu Database và Unpin TOÀN BỘ file gốc (Media + Ảnh bìa) trên IPFS Pinata. Bạn có chắc chắn không?");
-    if (!confirmDelete) return;
+    const loadingToast = toast.loading("⏳ Đang dọn dẹp dữ liệu trên IPFS và Database...");
 
     try {
-      // 1. Gom các link CID cần xóa vào một mảng
-      const cidsToDelete = [nft.image]; // Luôn đưa file media chính (ảnh/video/nhạc) vào danh sách trảm
-      
-      // Nếu NFT này có ảnh bìa (video hoặc nhạc), đưa luôn vào danh sách
-      if (nft.coverImage) {
-        cidsToDelete.push(nft.coverImage); 
-      }
+      const cidsToDelete = [nft.image]; 
+      if (nft.coverImage) cidsToDelete.push(nft.coverImage); 
 
-      console.log("Đang unpin danh sách file trên Pinata:", cidsToDelete);
-
-      // 2. Gọi API xóa với cấu trúc mới (mảng cids)
       await fetch('/api/delete', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ cids: cidsToDelete }) // Đổi nhãn từ 'cid' thành 'cids'
+        body: JSON.stringify({ cids: cidsToDelete })
       });
 
-      // 3. Xóa bản ghi trong Supabase
-      console.log("Đang xóa bản ghi Database cho NFT id:", nft.id);
       const { error: dbError } = await supabase
         .from('nfts')
         .delete()
@@ -235,13 +225,53 @@ export default function NFTDetails({ params }: { params: Promise<{ id: string }>
 
       if (dbError) throw dbError;
 
-      alert("🗑️ Bản ghi Database đã được xóa. Toàn bộ file gốc đã được dọn dẹp sạch sẽ khỏi Pinata!");
-      window.location.href = '/explore';
+      toast.success("🗑️ Đã xóa sạch bong kin kít!", { id: loadingToast });
+      
+      // Đợi 1.5 giây cho người dùng nhìn thấy thông báo rồi mới đẩy về trang chủ
+      setTimeout(() => {
+        window.location.href = '/explore';
+      }, 1500);
 
     } catch (error: any) {
       console.error("Lỗi khi xóa:", error);
-      alert("Có lỗi xảy ra khi xóa: " + error.message);
+      toast.error("Lỗi khi xóa: " + error.message, { id: loadingToast });
     }
+  };
+
+  // 2. Hàm kích hoạt Pop-up hỏi xác nhận (Thay thế cho window.confirm)
+  const handleDeleteNFT = () => {
+    toast.custom((t) => (
+      <div className={`${t.visible ? 'animate-enter' : 'animate-leave'} max-w-md w-full bg-gray-800 shadow-2xl rounded-2xl border border-gray-700 pointer-events-auto flex flex-col overflow-hidden`}>
+        {/* Tiêu đề & Nội dung */}
+        <div className="p-5">
+          <h3 className="text-xl font-extrabold text-white mb-2 flex items-center gap-2">
+            🚨 Xác nhận thu hồi?
+          </h3>
+          <p className="text-sm text-gray-400">
+            Hành động này sẽ xóa dữ liệu trên Database và Unpin toàn bộ file gốc trên IPFS. <b className="text-red-400">Không thể hoàn tác!</b>
+          </p>
+        </div>
+        
+        {/* Khu vực Nút bấm */}
+        <div className="flex border-t border-gray-700 bg-gray-900/50">
+          <button
+            onClick={() => {
+              toast.dismiss(t.id); // Đóng pop-up
+              executeDelete();     // Gọi hàm xóa ở trên
+            }}
+            className="w-full border-r border-gray-700 p-4 text-sm font-bold text-red-500 hover:bg-red-500 hover:text-white transition-colors"
+          >
+            Chắc chắn Xóa
+          </button>
+          <button
+            onClick={() => toast.dismiss(t.id)} // Chỉ đóng pop-up, không làm gì cả
+            className="w-full p-4 text-sm font-bold text-gray-300 hover:bg-gray-700 transition-colors"
+          >
+            Hủy bỏ
+          </button>
+        </div>
+      </div>
+    ), { duration: Infinity }); // Đặt Infinity để pop-up không tự tắt, bắt người dùng phải bấm nút
   };
 
   const formatAddress = (addr: string) => {
@@ -380,7 +410,7 @@ export default function NFTDetails({ params }: { params: Promise<{ id: string }>
                 // LÀ CHỦ SỞ HỮU -> Hiện Sửa / Xóa
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <button 
-                    onClick={() => alert("Sẽ chuyển sang trang Chỉnh sửa thông tin!")}
+                    onClick={() => toast.error("Sẽ chuyển sang trang Chỉnh sửa thông tin!")}
                     className="w-full py-4 rounded-xl font-bold text-lg text-white bg-gray-700 hover:bg-gray-600 transition-colors"
                   >
                     ✏️ Chỉnh sửa tác phẩm
@@ -395,7 +425,7 @@ export default function NFTDetails({ params }: { params: Promise<{ id: string }>
               ) : (
                 // KHÁCH XEM -> Hiện Mua / Đề nghị giá
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <button onClick={() => alert("Chức năng Mua sẽ được kích hoạt khi kết nối Smart Contract!")} className="flex items-center justify-center gap-3 w-full py-4 rounded-xl font-bold text-lg text-white bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 transform hover:-translate-y-1 transition-all shadow-[0_10px_20px_rgba(37,99,235,0.3)]">
+                  <button onClick={() => toast.error("Chức năng Mua sẽ được kích hoạt khi kết nối Smart Contract!")} className="flex items-center justify-center gap-3 w-full py-4 rounded-xl font-bold text-lg text-white bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 transform hover:-translate-y-1 transition-all shadow-[0_10px_20px_rgba(37,99,235,0.3)]">
                     <DollarSign size={20} /> Mua ngay
                   </button>
                   <button className="w-full py-4 rounded-xl font-bold text-lg text-gray-300 bg-gray-700 hover:bg-gray-600 transition-colors">

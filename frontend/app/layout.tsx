@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
+import { Toaster } from 'react-hot-toast';
 
 // Import các component dùng chung
 import Navbar from "@/components/Navbar";
@@ -27,6 +28,20 @@ export default function RootLayout({
         {/* Nội dung chính sẽ tự động co giãn để đẩy Footer xuống đáy */}
         <main className="flex-grow">
           {children}
+          <Toaster 
+          position="top-center" // CHÍNH GIỮA PHÍA TRÊN
+          reverseOrder={false}
+          toastOptions={{
+            // Tùy chỉnh giao diện cho ngầu giống Web3
+            style: {
+              background: '#374151', // Màu xám tối giống theme web của bạn
+              color: '#fff',
+              borderRadius: '16px',
+              padding: '16px',
+              border: '1px solid #4B5563',
+            },
+          }}
+        />
         </main>
 
         {/* Footer nằm ở dưới cùng */}

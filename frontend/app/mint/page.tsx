@@ -4,6 +4,7 @@ import { useState, useRef } from "react";
 import { UploadCloud, X, Image as ImageIcon, Video, Music, ImagePlus } from "lucide-react";
 import { supabase } from "../../lib/supabase"; 
 import { useRouter } from "next/navigation"; 
+import toast from 'react-hot-toast';
 
 export default function MintNFT() {
   const router = useRouter();
@@ -54,7 +55,7 @@ export default function MintNFT() {
     } else if (fileType.startsWith("audio/")) {
       setMediaType("audio");
     } else {
-      alert("Chỉ hỗ trợ file Hình ảnh, Video hoặc Âm thanh!");
+      toast.error("Chỉ hỗ trợ file Hình ảnh, Video hoặc Âm thanh!");
       return;
     }
 
@@ -89,7 +90,7 @@ export default function MintNFT() {
 
   const handleSetCover = (selectedFile: File) => {
     if (!selectedFile.type.startsWith("image/")) {
-      alert("Ảnh bìa bắt buộc phải là file hình ảnh (JPG/PNG)!");
+      toast.error("Ảnh bìa bắt buộc phải là file hình ảnh (JPG/PNG)!");
       return;
     }
     setCoverFile(selectedFile);
@@ -109,21 +110,22 @@ export default function MintNFT() {
     e.preventDefault();
     
     if (!file || !name || !price) {
-      alert("Vui lòng điền đầy đủ thông tin và chọn file gốc!");
+      toast.error("Vui lòng điền đầy đủ thông tin và chọn file gốc!");
       return;
     }
 
     // Ràng buộc cứng: Video và Nhạc BẮT BUỘC phải có ảnh bìa
     if ((mediaType === "audio" || mediaType === "video") && !coverFile) {
-      alert("🎧 Mảng Video/Âm thanh bắt buộc phải có Ảnh bìa (Thumbnail)!");
+      toast.error("🎧 Mảng Video/Âm thanh bắt buộc phải có Ảnh bìa (Thumbnail)!");
       return;
     }
 
     if (typeof window !== "undefined" && (window as any).ethereum) {
+      const toastId = toast.loading("⏳ Đang khởi tạo và đẩy dữ liệu lên IPFS...");
       try {
         const accounts = await (window as any).ethereum.request({ method: 'eth_accounts' });
         if (accounts.length === 0) {
-          alert("🦊 Vui lòng kết nối ví MetaMask!");
+          toast.error("🦊 Vui lòng kết nối ví MetaMask!");
           return;
         }
 
@@ -186,17 +188,56 @@ export default function MintNFT() {
 
         if (dbError) throw dbError;
 
-        alert(`🎉 Đúc tác phẩm ${mediaType.toUpperCase()} thành công lên IPFS!`);
-        window.location.href = '/explore'; // Đẩy về trang khám phá
+        // Nâng cấp Toast Thành công thành Bảng điều hướng 2 lựa chọn
+        toast.custom((t) => (
+          <div className={`${t.visible ? 'animate-enter' : 'animate-leave'} max-w-md w-full bg-gray-800 shadow-2xl rounded-2xl border border-green-500/30 pointer-events-auto flex flex-col overflow-hidden`}>
+            
+            {/* Khu vực Lời chúc */}
+            <div className="p-5 flex items-start gap-4 bg-gradient-to-b from-green-500/10 to-transparent">
+              <div className="text-4xl animate-bounce">🎉</div>
+              <div>
+                <h3 className="text-lg font-bold text-green-400 mb-1">
+                  Đúc siêu phẩm thành công!
+                </h3>
+                <p className="text-sm text-gray-300 leading-relaxed">
+                  Tác phẩm <span className="font-bold text-green-400">"{name}"</span> của bạn đã được ghi nhận lên IPFS. Bạn muốn làm gì tiếp theo?</p>
+              </div>
+            </div>
+            
+            {/* Khu vực Nút bấm (Chia đôi) */}
+            <div className="flex border-t border-gray-700 bg-gray-900/80">
+              <button
+                onClick={() => {
+                  toast.dismiss(t.id); 
+                  window.location.href = '/explore'; // Chuyển sang trang Khám phá
+                }}
+                className="w-full border-r border-gray-700 p-4 text-sm font-bold text-blue-400 hover:bg-blue-500 hover:text-white transition-all flex justify-center items-center gap-2"
+              >
+                🚀 Xem trên Chợ
+              </button>
+              <button
+                onClick={() => {
+                  toast.dismiss(t.id); // Tắt Toast để người dùng ở lại trang
+                  
+                  // (Tùy chọn): Bạn có thể gọi các hàm reset state ở đây để xóa form cũ
+                  // Ví dụ: setFile(null); setName(""); setPrice("");
+                }}
+                className="w-full p-4 text-sm font-bold text-gray-400 hover:bg-gray-700 hover:text-white transition-all flex justify-center items-center gap-2"
+              >
+                🔄 Mint tiếp
+              </button>
+            </div>
+          </div>
+        ), { id: toastId, duration: Infinity }); // Dùng chung ID với toast.loading để nó ghi đè lên, và giữ nó không tự tắt
         
       } catch (error: any) {
         console.error("Lỗi:", error);
-        alert("Có lỗi: " + error.message);
+        toast.error("Có lỗi: " + error.message);
       } finally {
         setIsMinting(false);
       }
     } else {
-      alert("Vui lòng cài đặt MetaMask!");
+      toast.error("Vui lòng cài đặt MetaMask!");
     }
   };
 
