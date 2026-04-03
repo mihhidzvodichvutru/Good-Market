@@ -62,10 +62,10 @@ export async function POST(request: Request) {
         wallet_address: walletAddress.toLowerCase(),
         username: username,
         bio: bio || "",
-        avatar_url: avatarUrl || "",
-        updated_at: new Date().toISOString()
+        avatar_url: avatarUrl || ""
+        // ĐÃ XÓA DÒNG updated_at CHO KHỚP VỚI DATABASE
       }, {
-        onConflict: 'wallet_address' // Báo cho Supabase biết lấy cột này ra làm chuẩn để xét xem nên Insert hay Update
+        onConflict: 'wallet_address' 
       })
       .select()
       .single();
