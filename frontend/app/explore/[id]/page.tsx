@@ -5,6 +5,7 @@ import Link from "next/link";
 import { supabase } from "../../../lib/supabase";
 import { UserCircle, Tag, Clock, Package, ArrowLeft, Loader2, DollarSign, History, Music, Play, Pause, Volume2, Video as VideoIcon, Camera } from "lucide-react";
 import toast from 'react-hot-toast';
+import { useRouter } from "next/navigation";
 
 // 1. Cập nhật Model dữ liệu (Thêm coverImage)
 interface NFT {
@@ -13,6 +14,8 @@ interface NFT {
   description: string;
   price: number;
   owner: string;
+  creator: string; 
+  creatorName?: string; 
   image: string; // Media gốc (mp3, mp4, ảnh)
   coverImage?: string; // Ảnh bìa album/thumbnail
   mediaType: "image" | "video" | "audio";
@@ -140,6 +143,7 @@ function AudioPlayer({ src }: { src: string }) {
 export default function NFTDetails({ params }: { params: Promise<{ id: string }> }) {
   const resolvedParams = use(params);
   const id = resolvedParams.id;
+  const router = useRouter();
 
   const [nft, setNft] = useState<NFT | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -166,30 +170,48 @@ export default function NFTDetails({ params }: { params: Promise<{ id: string }>
     const fetchNFTDetails = async () => {
       setIsLoading(true);
       try {
-        const { data, error } = await supabase
+        // Lần hỏi 1: Lấy thông tin NFT
+        const { data: nftData, error: nftError } = await supabase
           .from('nfts')
           .select('*')
           .eq('id', id)
           .single();
 
-        if (error) {
-          console.error("Lỗi khi tải chi tiết NFT:", error.message);
+        if (nftError) {
+          console.error("Lỗi khi tải chi tiết NFT:", nftError.message);
           return;
         }
 
-        if (data) {
+        if (nftData) {
+          const creatorAddress = nftData.creator || nftData.owner;
+          let fetchedCreatorName = "Nghệ sĩ Ẩn danh"; // Tên mặc định
+
+          // Lần hỏi 2: Cầm cái ví creator sang bảng users hỏi tên
+          if (creatorAddress) {
+            const { data: userData } = await supabase
+              .from('users')
+              .select('username')
+              .ilike('wallet_address', creatorAddress) // Dùng ilike để không phân biệt chữ hoa/thường
+              .single();
+            
+            if (userData && userData.username) {
+              fetchedCreatorName = userData.username;
+            }
+          }
+
           const formattedNft: NFT = {
-            id: data.id,
-            name: data.name,
-            description: data.description,
-            price: parseFloat(data.price),
-            owner: data.owner,
-            image: data.image,
-            // 3. Hứng dữ liệu: Cột cover_image và media_type từ Database
-            coverImage: data.cover_image,
-            mediaType: data.media_type || "image", 
-            isTrending: data.is_trending,
-            createdAt: data.created_at,
+            id: nftData.id,
+            name: nftData.name,
+            description: nftData.description,
+            price: parseFloat(nftData.price),
+            owner: nftData.owner,
+            creator: creatorAddress,
+            creatorName: fetchedCreatorName, // Nhét cái tên vừa lấy được vào đây
+            image: nftData.image,
+            coverImage: nftData.cover_image,
+            mediaType: nftData.media_type || "image", 
+            isTrending: nftData.is_trending,
+            createdAt: nftData.created_at,
           };
           setNft(formattedNft);
         }
@@ -292,9 +314,12 @@ export default function NFTDetails({ params }: { params: Promise<{ id: string }>
       <div className="min-h-screen bg-gray-900 text-white flex flex-col items-center justify-center gap-6 p-4 text-center">
         <Package className="h-20 w-20 text-gray-700" />
         <h1 className="text-3xl font-bold text-gray-300">Ối! Tác phẩm không tồn tại</h1>
-        <Link href="/explore" className="flex items-center gap-2 bg-gray-800 text-white px-6 py-3 rounded-xl hover:bg-gray-700 transition-colors">
-          <ArrowLeft size={18} /> Quay lại trang Khám phá
-        </Link>
+        <button 
+          onClick={() => router.back()} 
+          className="inline-flex items-center gap-2 text-gray-400 hover:text-white mb-8 transition-colors group cursor-pointer"
+        >
+          <ArrowLeft size={20} className="group-hover:-translate-x-1 transition-transform" />  Quay lại
+        </button>
       </div>
     );
   }
@@ -302,9 +327,12 @@ export default function NFTDetails({ params }: { params: Promise<{ id: string }>
   return (
     <div className="min-h-screen bg-gray-900 text-white py-8 px-4 md:px-8">
       <div className="max-w-7xl mx-auto">
-        <Link href="/explore" className="inline-flex items-center gap-2 text-gray-400 hover:text-white mb-8 transition-colors group">
-          <ArrowLeft size={20} className="group-hover:-translate-x-1 transition-transform" />  Quay lại danh sách
-        </Link>
+        <button 
+          onClick={() => router.back()} 
+          className="inline-flex items-center gap-2 text-gray-400 hover:text-white mb-8 transition-colors group cursor-pointer"
+        >
+          <ArrowLeft size={20} className="group-hover:-translate-x-1 transition-transform" />  Quay lại
+        </button>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-12">
           
@@ -367,6 +395,17 @@ export default function NFTDetails({ params }: { params: Promise<{ id: string }>
               <h1 className="text-4xl md:text-5xl font-extrabold tracking-tight mb-4 text-white">
                 {nft.name}
               </h1>
+              <div className="mb-6 text-lg flex items-center gap-2">
+                <span className="text-gray-400 font-medium">Tạo bởi</span>
+                <Link 
+                  href={`/profile/${nft.creator}`} 
+                  className="font-bold text-blue-400 hover:text-blue-300 transition-colors"
+                >
+                  {nft.creatorName && nft.creatorName !== "Nghệ sĩ Ẩn danh" 
+                    ? nft.creatorName 
+                    : formatAddress(nft.creator)}
+                </Link>
+              </div>
               <div className="flex flex-wrap gap-4 items-center p-4 bg-gray-800/50 rounded-2xl border border-gray-700">
                 <div className="flex items-center gap-3">
                   <UserCircle className="h-10 w-10 text-gray-500" />
