@@ -25,7 +25,11 @@ export default function ProfilePage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [copied, setCopied] = useState(false);
   
-  const artistName = "Nghệ sĩ Ẩn danh";
+  const [userMetadata, setUserMetadata] = useState({
+    username: "Nghệ sĩ Ẩn danh",
+    bio: "Chưa có tiểu sử.",
+    avatar_url: ""
+  });
 
   const resolveIpfsUrl = (url: string | undefined) => {
     if (!url) return "";
@@ -56,33 +60,41 @@ export default function ProfilePage() {
   }, []);
 
 // 2. CHỌC THẲNG DATABASE: Lấy tất cả NFT liên quan đến ví này
-  useEffect(() => {
-    const fetchUserNFTs = async () => {
+useEffect(() => {
+    const fetchFullProfile = async () => {
       if (!currentAccount) return;
       setIsLoading(true);
       
       try {
-        // SỬA Ở ĐÂY: Dùng .ilike thay vì .or để không bị lỗi thiếu cột.
-        // Tạm thời chỉ lọc theo cột 'owner' đã có sẵn trong Database.
-        const { data, error } = await supabase
+        // 1. FETCH THÔNG TIN CÁ NHÂN (Nghệ danh, Bio, Avatar)
+        const { data: userData } = await supabase
+          .from('users')
+          .select('*')
+          .ilike('wallet_address', currentAccount)
+          .single();
+
+        if (userData) {
+          setUserMetadata({
+            username: userData.username || "Nghệ sĩ Ẩn danh",
+            bio: userData.bio || "Chưa có tiểu sử.",
+            avatar_url: userData.avatar_url || ""
+          });
+        }
+
+        // 2. FETCH DANH SÁCH NFT (Giữ nguyên logic cũ của ông)
+        const { data: nftData, error } = await supabase
           .from('nfts')
           .select('*')
           .or(`owner.ilike.${currentAccount},creator.ilike.${currentAccount}`)
           .order('id', { ascending: false });
 
-        if (error) {
-          console.error("Chi tiết lỗi từ Supabase:", error); // In rõ lỗi ra console để dễ debug
-          throw error;
-        }
-
-        if (data) {
-          const formattedData: NFT[] = data.map((item: any) => ({
+        if (nftData) {
+          const formattedData = nftData.map((item: any) => ({
             id: item.id,
             name: item.name,
             price: parseFloat(item.price),
             owner: (item.owner || "").toLowerCase(),
-            // Vì database chưa có cột creator, ta tạm lấy owner làm creator luôn để giao diện không bị sập
-            creator: (item.creator || item.owner || "").toLowerCase(), 
+            creator: (item.creator || item.owner || "").toLowerCase(),
             image: item.image,
             coverImage: item.cover_image,
             mediaType: item.media_type || "image",
@@ -90,13 +102,13 @@ export default function ProfilePage() {
           setNfts(formattedData);
         }
       } catch (err) {
-        console.error("Lỗi quá trình tải NFT:", err);
+        console.error("Lỗi fetch Profile:", err);
       } finally {
         setIsLoading(false);
       }
     };
 
-    fetchUserNFTs();
+    fetchFullProfile();
   }, [currentAccount]);
 
   // 3. TÁCH BẠCH 2 DANH SÁCH RÕ RÀNG THEO LUẬT CỦA BẠN
@@ -147,27 +159,45 @@ export default function ProfilePage() {
       </div>
 
       {/* 2. KHU VỰC THÔNG TIN */}
-      <div className="max-w-7xl mx-auto px-4 md:px-8 relative">
-        <div className="flex flex-col md:flex-row md:justify-between items-start">
-          
-          <div className="flex flex-col -mt-20 relative z-10 mb-6 md:mb-0">
-            <div 
-              className="w-36 h-36 rounded-full border-4 border-[#0e111a] shadow-2xl mb-4"
-              style={{ background: generateAvatarGradient(currentAccount) }}
-            ></div>
-            
-            <div className="mb-1">
-              <h1 className="text-3xl font-black">{artistName}</h1>
-            </div>
+<div className="max-w-7xl mx-auto px-4 md:px-8 relative">
+  <div className="flex flex-col md:flex-row md:justify-between items-start">
+    
+    <div className="flex flex-col -mt-20 relative z-10 mb-6 md:mb-0">
+      {/* Khối Avatar */}
+      <div className="w-36 h-36 rounded-full border-4 border-[#0e111a] overflow-hidden bg-gray-800 shadow-2xl mb-4">
+        {userMetadata.avatar_url ? (
+          <img 
+            src={resolveIpfsUrl(userMetadata.avatar_url)} 
+            className="w-full h-full object-cover" 
+            alt="Avatar" 
+          />
+        ) : (
+          <div className="w-full h-full" style={{ background: generateAvatarGradient(currentAccount) }}></div>
+        )}
+      </div>
+      
+      {/* 1. Tên Nghệ danh */}
+      <div className="mb-2">
+        <h1 className="text-3xl font-black text-white">{userMetadata.username}</h1>
+      </div>
 
-            <div className="flex items-center gap-2">
-              <div className="flex items-center gap-2 bg-gray-800/60 rounded-full px-4 py-1.5 border border-gray-700/50 hover:bg-gray-700/60 cursor-pointer transition-colors" onClick={copyToClipboard}>
-                <span className="font-mono text-gray-300 text-sm">
-                  {currentAccount ? `${currentAccount.slice(0, 6)}...${currentAccount.slice(-4)}` : "Đang tải..."}
-                </span>
-                {copied ? <Check size={14} className="text-green-400" /> : <Copy size={14} className="text-gray-400" />}
-              </div>
-            </div>
+      {/* 2. Địa chỉ ví (Đã chuyển lên trên Bio) */}
+      <div className="flex items-center gap-2 mb-4">
+        <div 
+          className="flex items-center gap-2 bg-gray-800/60 rounded-full px-4 py-1.5 border border-gray-700/50 hover:bg-gray-700/60 cursor-pointer transition-colors" 
+          onClick={copyToClipboard}
+        >
+          <span className="font-mono text-gray-300 text-sm">
+            {currentAccount ? `${currentAccount.slice(0, 6)}...${currentAccount.slice(-4)}` : "Đang tải..."}
+          </span>
+          {copied ? <Check size={14} className="text-green-400" /> : <Copy size={14} className="text-gray-400" />}
+        </div>
+      </div>
+
+      {/* 3. Tiểu sử (Bio) (Đã chuyển xuống dưới cùng) */}
+      <p className="text-gray-400 max-w-lg leading-relaxed">
+        {userMetadata.bio || "Người dùng này chưa cập nhật tiểu sử."}
+      </p>
           </div>
 
           <div className="flex gap-8 md:mt-6 bg-[#1a202c]/50 p-6 rounded-2xl border border-gray-800/50 backdrop-blur-sm">
