@@ -4,7 +4,7 @@ import Link from "next/link";
 import useEmblaCarousel from 'embla-carousel-react';
 import Autoplay from 'embla-carousel-autoplay';
 import { useState, useEffect, useCallback } from "react";
-import { Search, Filter, TrendingUp, Clock, Music, Play, Video as VideoIcon, Camera, RefreshCw } from "lucide-react"; 
+import { Search, Filter, TrendingUp, Clock, Music, Play, Video as VideoIcon, Camera, RefreshCw, Compass } from "lucide-react"; 
 import { supabase } from "../../lib/supabase"; 
 
 
@@ -201,9 +201,9 @@ export default function Explore() {
         
         {/* Tiêu đề Trang */}
         <div className="mb-10">
-          <h1 className="text-4xl md:text-5xl font-extrabold tracking-tight mb-4">
-            Khám phá Tác phẩm
-          </h1>
+          <h1 className="text-4xl md:text-5xl font-black mb-4 flex items-center gap-3">
+  <Compass className="text-purple-500" size={44} /> Khám Phá Tác Phẩm
+</h1>
           <p className="text-gray-400 text-lg max-w-2xl">
             Sàn giao dịch đa phương tiện: Hình ảnh, Video, Âm thanh độc bản trên Blockchain.
           </p>

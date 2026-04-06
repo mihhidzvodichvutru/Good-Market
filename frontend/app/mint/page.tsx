@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef } from "react";
-import { UploadCloud, X, Image as ImageIcon, Video, Music, ImagePlus } from "lucide-react";
+import { UploadCloud, X, Image as ImageIcon, Video, Music, ImagePlus, Sparkles } from "lucide-react";
 import { supabase } from "../../lib/supabase"; 
 import { useRouter } from "next/navigation"; 
 import toast from 'react-hot-toast';
@@ -266,7 +266,9 @@ export default function MintNFT() {
     <div className="min-h-screen bg-gray-900 text-white py-12 px-4 md:px-8">
       <div className="max-w-5xl mx-auto">
         <div className="mb-10">
-          <h1 className="text-4xl font-extrabold tracking-tight mb-2">Đúc tác phẩm mới</h1>
+          <h1 className="text-4xl md:text-5xl font-black mb-4 flex items-center gap-3">
+  <Sparkles className="text-blue-500" size={40} /> Đúc Tác Phẩm Mới
+</h1>
           <p className="text-gray-400 text-lg">Hỗ trợ Ảnh, Video và Âm thanh. Kích thước tối đa 25MB.</p>
         </div>
 
