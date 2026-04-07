@@ -109,34 +109,34 @@ export default function MintNFT() {
   // Hàm gọi MetaMask và tương tác với Blockchain
   const mintToBlockchain = async (ipfsUrl: string, priceInEth: string) => {
     try {
-      if (typeof window === "undefined" || !(window as any).ethereum) {
-        alert("Vui lòng cài đặt MetaMask!");
-        return null;
-      }
-
-      // Kết nối ví
       const provider = new ethers.BrowserProvider((window as any).ethereum);
       const signer = await provider.getSigner();
-      
-      // Tạo bản sao của Smart Contract trên Frontend
       const contract = new ethers.Contract(BODOI_CONTRACT_ADDRESS, BODOI_CONTRACT_ABI, signer);
 
-      // Đổi giá từ ETH sang Wei (18 số 0)
       const priceInWei = ethers.parseEther(priceInEth.toString());
-
-      console.log("Đang chờ xác nhận từ MetaMask...");
-      
-      // Gọi hàm mintNFT trong Smart Contract
       const tx = await contract.mintNFT(ipfsUrl, priceInWei);
+      const receipt = await tx.wait(); // Chờ đào xong
       
-      console.log("Đang chờ mạng Oasis đào block...");
-      const receipt = await tx.wait(); // Chờ giao dịch thành công
+      // --- ĐOẠN MỚI: MỔ XẺ BIÊN LAI ĐỂ LẤY TOKEN ID ---
+      let mintedTokenId = null;
+      for (const log of receipt.logs) {
+        try {
+          const parsedLog = contract.interface.parseLog(log);
+          // Tìm đúng sự kiện báo đúc thành công (Transfer)
+          if (parsedLog && parsedLog.name === "Transfer") {
+            mintedTokenId = Number(parsedLog.args[2]); // Lấy con số ID (nằm ở vị trí số 3)
+            break;
+          }
+        } catch (e) {
+          // Bỏ qua các log rác không liên quan
+        }
+      }
+
+      console.log("Đúc thành công! Token ID là:", mintedTokenId);
+      return mintedTokenId; // Trả về con số này
       
-      console.log("Đúc thành công trên Blockchain!", receipt);
-      return receipt;
     } catch (error) {
       console.error("Lỗi khi đúc NFT:", error);
-      alert("Giao dịch bị hủy hoặc thất bại!");
       return null;
     }
   };
@@ -169,13 +169,12 @@ export default function MintNFT() {
 
         setIsMinting(true);
 
-        // 1. Đóng gói dữ liệu gửi đi (Gửi 1 hoặc 2 file tùy loại)
+        // 1. Đóng gói dữ liệu gửi đi
         const formData = new FormData();
-        formData.append("file", file); // File chính
+        formData.append("file", file);
         formData.append("name", name);
         formData.append("description", description);
         
-        // Gắn thêm ảnh bìa vào form nếu có
         if (coverFile) {
           formData.append("cover", coverFile);
         }
@@ -192,47 +191,46 @@ export default function MintNFT() {
 
         const uploadData = await uploadResponse.json();
         
-        // --- BẮT ĐẦU BÓC HÀNH TÂY (Chuẩn OpenSea) ---
+        // --- BẮT ĐẦU BÓC HÀNH TÂY ---
         const metadataIpfsUrl = uploadData.ipfsUrl; 
         
-        // Dùng cổng VIP để fetch cái file JSON đó về đọc thử
         const gateway = process.env.NEXT_PUBLIC_PINATA_GATEWAY || "https://gateway.pinata.cloud";
         const gatewayUrl = metadataIpfsUrl.replace("ipfs://", `${gateway}/ipfs/`);
         
         const metadataResponse = await fetch(gatewayUrl);
         const metadataJson = await metadataResponse.json();
 
-        // Đọc dữ liệu từ file JSON mới của ông bạn IPFS:
-        const realCoverLink = metadataJson.image; // Luôn lấy ảnh bìa
-        // Nếu là Nhạc/Video thì lấy animation_url, nếu là Ảnh thì xài luôn link ảnh
+        const realCoverLink = metadataJson.image; 
         const realMediaLink = metadataJson.animation_url || metadataJson.image; 
         // ---------------------------
 
-        // 3. TƯƠNG TÁC VỚI BLOCKCHAIN (MỚI THÊM)
+        // 3. TƯƠNG TÁC VỚI BLOCKCHAIN (Đã sửa để lấy token_id)
         toast.loading("🦊 Vui lòng xác nhận giao dịch trên MetaMask...", { id: toastId });
         
-        // Gọi hàm mintToBlockchain đã viết ở trên (Cần đảm bảo hàm này đã được định nghĩa trong file)
-        const blockchainReceipt = await mintToBlockchain(metadataIpfsUrl, price);
+        // Chú ý: Hàm mintToBlockchain phải được update để trả về ID (mintedTokenId) nhé!
+        const tokenIdOnChain = await mintToBlockchain(metadataIpfsUrl, price);
         
-        // Nếu người dùng từ chối ký giao dịch hoặc lỗi mạng, hủy bỏ việc ghi vào DB
-        if (!blockchainReceipt) {
+        // ID có thể là số 0, nên phải check bằng null hoặc undefined
+        if (tokenIdOnChain === null || tokenIdOnChain === undefined) {
            toast.error("Giao dịch Blockchain bị hủy. Không thể tạo NFT.", { id: toastId });
            setIsMinting(false);
            return; 
         }
 
-        // 4. GHI DỮ LIỆU THẬT VÀO SUPABASE (Chỉ thực hiện khi Blockchain đã xác nhận)
+        // 4. GHI DỮ LIỆU THẬT VÀO SUPABASE (Đã bổ sung token_id và creator)
         toast.loading("💾 Đang đồng bộ dữ liệu hệ thống...", { id: toastId });
         const { error: dbError } = await supabase
           .from('nfts')
           .insert([
             {
+              token_id: tokenIdOnChain,  // <--- LƯU MÃ ID CỦA BLOCKCHAIN
               name: name,
               description: description,
               price: parseFloat(price),
               owner: accounts[0],
-              image: realMediaLink,      // Cột này để trình duyệt web phát Nhạc/Video/Ảnh
-              cover_image: realCoverLink, // Cột này lưu dự phòng Ảnh Bìa để sau trang trí UI
+              creator: accounts[0],      // <--- GHI NHẬN NGƯỜI TẠO GỐC
+              image: realMediaLink,      
+              cover_image: realCoverLink, 
               media_type: mediaType,
               is_trending: false
             }
@@ -240,11 +238,9 @@ export default function MintNFT() {
 
         if (dbError) throw dbError;
 
-        // 5. Nâng cấp Toast Thành công thành Bảng điều hướng 2 lựa chọn
+        // 5. Nâng cấp Toast Thành công
         toast.custom((t) => (
           <div className={`${t.visible ? 'animate-enter' : 'animate-leave'} max-w-md w-full bg-gray-800 shadow-2xl rounded-2xl border border-green-500/30 pointer-events-auto flex flex-col overflow-hidden`}>
-            
-            {/* Khu vực Lời chúc */}
             <div className="p-5 flex items-start gap-4 bg-gradient-to-b from-green-500/10 to-transparent">
               <div className="text-4xl animate-bounce">🎉</div>
               <div>
@@ -252,16 +248,16 @@ export default function MintNFT() {
                   Đúc siêu phẩm thành công!
                 </h3>
                 <p className="text-sm text-gray-300 leading-relaxed">
-                  Tác phẩm <span className="font-bold text-green-400">"{name}"</span> của bạn đã được ghi nhận lên IPFS và mạng Oasis. Bạn muốn làm gì tiếp theo?</p>
+                  Tác phẩm <span className="font-bold text-green-400">"{name}"</span> của bạn đã được ghi nhận lên IPFS và mạng Oasis (ID: #{tokenIdOnChain}). Bạn muốn làm gì tiếp theo?
+                </p>
               </div>
             </div>
             
-            {/* Khu vực Nút bấm (Chia đôi) */}
             <div className="flex border-t border-gray-700 bg-gray-900/80">
               <button
                 onClick={() => {
                   toast.dismiss(t.id); 
-                  window.location.href = '/explore'; // Chuyển sang trang Khám phá
+                  window.location.href = '/explore'; 
                 }}
                 className="w-full border-r border-gray-700 p-4 text-sm font-bold text-blue-400 hover:bg-blue-500 hover:text-white transition-all flex justify-center items-center gap-2"
               >
@@ -269,9 +265,7 @@ export default function MintNFT() {
               </button>
               <button
                 onClick={() => {
-                  toast.dismiss(t.id); // Tắt Toast để người dùng ở lại trang
-                  // Tùy chọn: Gọi các hàm reset state ở đây để xóa form cũ
-                  // setFile(null); setName(""); setPrice("");
+                  toast.dismiss(t.id); 
                 }}
                 className="w-full p-4 text-sm font-bold text-gray-400 hover:bg-gray-700 hover:text-white transition-all flex justify-center items-center gap-2"
               >
@@ -279,7 +273,7 @@ export default function MintNFT() {
               </button>
             </div>
           </div>
-        ), { id: toastId, duration: Infinity }); // Dùng chung ID với toast.loading để nó ghi đè lên
+        ), { id: toastId, duration: Infinity }); 
         
       } catch (error: any) {
         console.error("Lỗi:", error);

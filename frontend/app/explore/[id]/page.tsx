@@ -1,5 +1,7 @@
 "use client";
 
+import { ethers } from "ethers";
+import { BODOI_CONTRACT_ADDRESS, BODOI_CONTRACT_ABI } from "../../../lib/contract";
 import { useState, useEffect, use, useRef } from "react";
 import Link from "next/link";
 import { supabase } from "../../../lib/supabase";
@@ -22,6 +24,27 @@ interface NFT {
   isTrending: boolean;
   createdAt: string; 
 }
+
+// Truyền vào ID của NFT trên blockchain và Giá tiền
+const buyOnBlockchain = async (tokenIdOnChain: number, priceInEth: number) => {
+  try {
+    const provider = new ethers.BrowserProvider((window as any).ethereum);
+    const signer = await provider.getSigner();
+    const contract = new ethers.Contract(BODOI_CONTRACT_ADDRESS, BODOI_CONTRACT_ABI, signer);
+
+    // Chuyển đổi ETH sang đơn vị Wei
+    const priceInWei = ethers.parseEther(priceInEth.toString());
+
+    // Gọi hàm buyNFT và nhét tiền vào ({ value: priceInWei })
+    const tx = await contract.buyNFT(tokenIdOnChain, { value: priceInWei });
+    await tx.wait(); // Chờ giao dịch đào xong
+    
+    return true; 
+  } catch (error) {
+    console.error("Lỗi khi mua trên Blockchain:", error);
+    return false;
+  }
+};
 
 // BƯỚC 1: HÀM GIẢI MÃ LINK IPFS (ĐÃ NÂNG CẤP LÊN CỔNG VIP)
   const resolveIpfsUrl = (url: string | undefined) => {
@@ -145,11 +168,12 @@ export default function NFTDetails({ params }: { params: Promise<{ id: string }>
   const id = resolvedParams.id;
   const router = useRouter();
 
-  const [nft, setNft] = useState<NFT | null>(null);
+  const [nft, setNft] = useState<any | null>(null); // Dùng any tạm nếu ông chưa update interface NFT
   const [isLoading, setIsLoading] = useState(true);
-  
+  const [isBuying, setIsBuying] = useState(false); // State để xoay icon loading lúc mua
   const [currentAccount, setCurrentAccount] = useState<string | null>(null);
 
+  // Kiểm tra ví đang kết nối
   useEffect(() => {
     const checkWallet = async () => {
       if (typeof window !== "undefined" && (window as any).ethereum) {
@@ -166,11 +190,11 @@ export default function NFTDetails({ params }: { params: Promise<{ id: string }>
     checkWallet();
   }, []);
 
+  // Kéo dữ liệu từ Database
   useEffect(() => {
     const fetchNFTDetails = async () => {
       setIsLoading(true);
       try {
-        // Lần hỏi 1: Lấy thông tin NFT
         const { data: nftData, error: nftError } = await supabase
           .from('nfts')
           .select('*')
@@ -184,14 +208,13 @@ export default function NFTDetails({ params }: { params: Promise<{ id: string }>
 
         if (nftData) {
           const creatorAddress = nftData.creator || nftData.owner;
-          let fetchedCreatorName = "Nghệ sĩ Ẩn danh"; // Tên mặc định
+          let fetchedCreatorName = "Nghệ sĩ Ẩn danh";
 
-          // Lần hỏi 2: Cầm cái ví creator sang bảng users hỏi tên
           if (creatorAddress) {
             const { data: userData } = await supabase
               .from('users')
               .select('username')
-              .ilike('wallet_address', creatorAddress) // Dùng ilike để không phân biệt chữ hoa/thường
+              .ilike('wallet_address', creatorAddress)
               .single();
             
             if (userData && userData.username) {
@@ -199,14 +222,15 @@ export default function NFTDetails({ params }: { params: Promise<{ id: string }>
             }
           }
 
-          const formattedNft: NFT = {
+          const formattedNft = {
             id: nftData.id,
+            tokenId: nftData.token_id, // 🚨 CỰC KỲ QUAN TRỌNG: Phải lấy được ID của Blockchain
             name: nftData.name,
             description: nftData.description,
             price: parseFloat(nftData.price),
             owner: nftData.owner,
             creator: creatorAddress,
-            creatorName: fetchedCreatorName, // Nhét cái tên vừa lấy được vào đây
+            creatorName: fetchedCreatorName,
             image: nftData.image,
             coverImage: nftData.cover_image,
             mediaType: nftData.media_type || "image", 
@@ -224,6 +248,61 @@ export default function NFTDetails({ params }: { params: Promise<{ id: string }>
 
     fetchNFTDetails();
   }, [id]);
+
+  const handleBuy = async () => {
+    if (!nft) return;
+    
+    // Kiểm tra đã đăng nhập ví chưa
+    if (!currentAccount) {
+      toast.error("Vui lòng kết nối ví MetaMask trước khi mua!");
+      return;
+    }
+
+    // Chặn người dùng tự mua đồ của mình
+    if (currentAccount.toLowerCase() === nft.owner.toLowerCase()) {
+      toast.error("Đây là tài sản của bạn, bạn không thể tự mua!");
+      return;
+    }
+
+    // Kiểm tra xem NFT đã có mã Blockchain chưa
+    if (nft.tokenId === undefined || nft.tokenId === null) {
+      toast.error("Lỗi dữ liệu: NFT này chưa được đồng bộ mã Blockchain (token_id).");
+      return;
+    }
+
+    setIsBuying(true);
+    const toastId = toast.loading("🦊 Vui lòng xác nhận thanh toán trên MetaMask...");
+
+    try {
+      // 1. Chốt giao dịch trên Blockchain
+      const isSuccess = await buyOnBlockchain(nft.tokenId, nft.price);
+
+      if (isSuccess) {
+        toast.loading("💾 Giao dịch thành công! Đang làm thủ tục sang tên đổi chủ...", { id: toastId });
+
+        // 2. Sang tên đổi chủ trên Database
+        const { error: dbError } = await supabase
+          .from('nfts')
+          .update({ owner: currentAccount }) 
+          .eq('id', nft.id);
+
+        if (dbError) throw dbError;
+
+        // 3. Ăn mừng
+        toast.success("🎉 Chốt đơn thành công! Tác phẩm này đã thuộc về bạn!", { id: toastId });
+        
+        // Cập nhật lại giao diện ngay lập tức
+        setNft({ ...nft, owner: currentAccount }); 
+      } else {
+        toast.error("❌ Giao dịch thất bại hoặc bạn đã hủy bỏ.", { id: toastId });
+      }
+    } catch (error: any) {
+      console.error(error);
+      toast.error("Lỗi hệ thống: " + error.message, { id: toastId });
+    } finally {
+      setIsBuying(false);
+    }
+  };
 
   // 1. Hàm thực thi việc Xóa (Chỉ chạy khi người dùng bấm "Đồng ý" trên Toast)
   const executeDelete = async () => {
@@ -464,9 +543,18 @@ export default function NFTDetails({ params }: { params: Promise<{ id: string }>
               ) : (
                 // KHÁCH XEM -> Hiện Mua / Đề nghị giá
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <button onClick={() => toast.error("Chức năng Mua sẽ được kích hoạt khi kết nối Smart Contract!")} className="flex items-center justify-center gap-3 w-full py-4 rounded-xl font-bold text-lg text-white bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 transform hover:-translate-y-1 transition-all shadow-[0_10px_20px_rgba(37,99,235,0.3)]">
-                    <DollarSign size={20} /> Mua ngay
-                  </button>
+                  <button 
+  onClick={handleBuy} 
+  disabled={isBuying}
+  className={`flex items-center justify-center gap-3 w-full py-4 rounded-xl font-bold text-lg text-white transition-all shadow-[0_10px_20px_rgba(37,99,235,0.3)] 
+    ${isBuying 
+      ? "bg-gray-500 cursor-not-allowed" // Giao diện khi đang xoay loading
+      : "bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 transform hover:-translate-y-1" // Giao diện lúc bình thường
+    }`}
+>
+  <DollarSign size={20} className={isBuying ? "animate-spin" : ""} /> 
+  {isBuying ? "Đang xử lý giao dịch..." : "Mua ngay"}
+</button>
                   <button className="w-full py-4 rounded-xl font-bold text-lg text-gray-300 bg-gray-700 hover:bg-gray-600 transition-colors">
                     Đề nghị giá
                   </button>

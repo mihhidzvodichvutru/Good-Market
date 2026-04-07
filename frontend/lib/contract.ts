@@ -6,5 +6,6 @@ export const BODOI_CONTRACT_ADDRESS = "0xD1C7c49886594F722747D5196394FBe19902C50
 // ABI rút gọn: Chỉ khai báo đúng 2 hàm mình cần dùng để code cực nhẹ
 export const BODOI_CONTRACT_ABI = [
   "function mintNFT(string memory tokenURI, uint256 price) public returns (uint256)",
-  "function buyNFT(uint256 tokenId) public payable"
+  "function buyNFT(uint256 tokenId) public payable",
+  "event Transfer(address indexed from, address indexed to, uint256 indexed tokenId)"
 ];
