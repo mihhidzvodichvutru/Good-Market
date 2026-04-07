@@ -1,5 +1,7 @@
 "use client";
 
+import { ethers } from "ethers";
+import { BODOI_CONTRACT_ADDRESS, BODOI_CONTRACT_ABI } from "../../lib/contract";
 import { useState, useRef } from "react";
 import { UploadCloud, X, Image as ImageIcon, Video, Music, ImagePlus, Sparkles } from "lucide-react";
 import { supabase } from "../../lib/supabase"; 
@@ -103,6 +105,42 @@ export default function MintNFT() {
     if (coverInputRef.current) coverInputRef.current.value = "";
   };
 
+
+  // Hàm gọi MetaMask và tương tác với Blockchain
+  const mintToBlockchain = async (ipfsUrl: string, priceInEth: string) => {
+    try {
+      if (typeof window === "undefined" || !(window as any).ethereum) {
+        alert("Vui lòng cài đặt MetaMask!");
+        return null;
+      }
+
+      // Kết nối ví
+      const provider = new ethers.BrowserProvider((window as any).ethereum);
+      const signer = await provider.getSigner();
+      
+      // Tạo bản sao của Smart Contract trên Frontend
+      const contract = new ethers.Contract(BODOI_CONTRACT_ADDRESS, BODOI_CONTRACT_ABI, signer);
+
+      // Đổi giá từ ETH sang Wei (18 số 0)
+      const priceInWei = ethers.parseEther(priceInEth.toString());
+
+      console.log("Đang chờ xác nhận từ MetaMask...");
+      
+      // Gọi hàm mintNFT trong Smart Contract
+      const tx = await contract.mintNFT(ipfsUrl, priceInWei);
+      
+      console.log("Đang chờ mạng Oasis đào block...");
+      const receipt = await tx.wait(); // Chờ giao dịch thành công
+      
+      console.log("Đúc thành công trên Blockchain!", receipt);
+      return receipt;
+    } catch (error) {
+      console.error("Lỗi khi đúc NFT:", error);
+      alert("Giao dịch bị hủy hoặc thất bại!");
+      return null;
+    }
+  };
+
   // ==========================================
   // LOGIC GỬI LÊN DATABASE (HỖ TRỢ CHUẨN OPENSEA METADATA)
   // ==========================================
@@ -139,7 +177,7 @@ export default function MintNFT() {
         
         // Gắn thêm ảnh bìa vào form nếu có
         if (coverFile) {
-          formData.append("cover", coverFile); // <--- Đổi thành "cover" theo đúng lời dặn
+          formData.append("cover", coverFile);
         }
 
         // 2. Bắn sang API IPFS
@@ -157,7 +195,7 @@ export default function MintNFT() {
         // --- BẮT ĐẦU BÓC HÀNH TÂY (Chuẩn OpenSea) ---
         const metadataIpfsUrl = uploadData.ipfsUrl; 
         
-        // Bước B: Dùng cổng VIP để fetch cái file JSON đó về đọc thử (SỬA Ở ĐÂY)
+        // Dùng cổng VIP để fetch cái file JSON đó về đọc thử
         const gateway = process.env.NEXT_PUBLIC_PINATA_GATEWAY || "https://gateway.pinata.cloud";
         const gatewayUrl = metadataIpfsUrl.replace("ipfs://", `${gateway}/ipfs/`);
         
@@ -170,7 +208,21 @@ export default function MintNFT() {
         const realMediaLink = metadataJson.animation_url || metadataJson.image; 
         // ---------------------------
 
-        // 3. GHI DỮ LIỆU THẬT VÀO SUPABASE 
+        // 3. TƯƠNG TÁC VỚI BLOCKCHAIN (MỚI THÊM)
+        toast.loading("🦊 Vui lòng xác nhận giao dịch trên MetaMask...", { id: toastId });
+        
+        // Gọi hàm mintToBlockchain đã viết ở trên (Cần đảm bảo hàm này đã được định nghĩa trong file)
+        const blockchainReceipt = await mintToBlockchain(metadataIpfsUrl, price);
+        
+        // Nếu người dùng từ chối ký giao dịch hoặc lỗi mạng, hủy bỏ việc ghi vào DB
+        if (!blockchainReceipt) {
+           toast.error("Giao dịch Blockchain bị hủy. Không thể tạo NFT.", { id: toastId });
+           setIsMinting(false);
+           return; 
+        }
+
+        // 4. GHI DỮ LIỆU THẬT VÀO SUPABASE (Chỉ thực hiện khi Blockchain đã xác nhận)
+        toast.loading("💾 Đang đồng bộ dữ liệu hệ thống...", { id: toastId });
         const { error: dbError } = await supabase
           .from('nfts')
           .insert([
@@ -188,7 +240,7 @@ export default function MintNFT() {
 
         if (dbError) throw dbError;
 
-        // Nâng cấp Toast Thành công thành Bảng điều hướng 2 lựa chọn
+        // 5. Nâng cấp Toast Thành công thành Bảng điều hướng 2 lựa chọn
         toast.custom((t) => (
           <div className={`${t.visible ? 'animate-enter' : 'animate-leave'} max-w-md w-full bg-gray-800 shadow-2xl rounded-2xl border border-green-500/30 pointer-events-auto flex flex-col overflow-hidden`}>
             
@@ -200,7 +252,7 @@ export default function MintNFT() {
                   Đúc siêu phẩm thành công!
                 </h3>
                 <p className="text-sm text-gray-300 leading-relaxed">
-                  Tác phẩm <span className="font-bold text-green-400">"{name}"</span> của bạn đã được ghi nhận lên IPFS. Bạn muốn làm gì tiếp theo?</p>
+                  Tác phẩm <span className="font-bold text-green-400">"{name}"</span> của bạn đã được ghi nhận lên IPFS và mạng Oasis. Bạn muốn làm gì tiếp theo?</p>
               </div>
             </div>
             
@@ -218,9 +270,8 @@ export default function MintNFT() {
               <button
                 onClick={() => {
                   toast.dismiss(t.id); // Tắt Toast để người dùng ở lại trang
-                  
-                  // (Tùy chọn): Bạn có thể gọi các hàm reset state ở đây để xóa form cũ
-                  // Ví dụ: setFile(null); setName(""); setPrice("");
+                  // Tùy chọn: Gọi các hàm reset state ở đây để xóa form cũ
+                  // setFile(null); setName(""); setPrice("");
                 }}
                 className="w-full p-4 text-sm font-bold text-gray-400 hover:bg-gray-700 hover:text-white transition-all flex justify-center items-center gap-2"
               >
@@ -228,11 +279,11 @@ export default function MintNFT() {
               </button>
             </div>
           </div>
-        ), { id: toastId, duration: Infinity }); // Dùng chung ID với toast.loading để nó ghi đè lên, và giữ nó không tự tắt
+        ), { id: toastId, duration: Infinity }); // Dùng chung ID với toast.loading để nó ghi đè lên
         
       } catch (error: any) {
         console.error("Lỗi:", error);
-        toast.error("Có lỗi: " + error.message);
+        toast.error("Có lỗi: " + error.message, { id: toastId });
       } finally {
         setIsMinting(false);
       }
