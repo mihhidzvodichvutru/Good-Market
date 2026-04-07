@@ -250,6 +250,8 @@ useEffect(() => {
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-5">
             {displayNfts.map((nft) => (
               <Link href={`/explore/${nft.id}`} key={nft.id} className="group flex flex-col rounded-2xl bg-[#1a202c] border border-gray-800 hover:border-gray-600 overflow-hidden transition-all duration-300 hover:-translate-y-1 hover:shadow-xl">
+                
+                {/* Khu vực Hình ảnh */}
                 <div className="aspect-square bg-gray-800 relative overflow-hidden flex items-center justify-center">
                   {nft.mediaType === "image" && <img src={resolveIpfsUrl(nft.image)} alt={nft.name} className="w-full h-full object-cover group-hover:scale-110 transition-transform" />}
                   {nft.mediaType === "video" && <img src={resolveIpfsUrl(nft.coverImage || nft.image)} className="w-full h-full object-cover group-hover:scale-110 transition-transform" />}
@@ -264,17 +266,33 @@ useEffect(() => {
                     {nft.mediaType === 'audio' && <Music size={14}/>}
                   </div>
                 </div>
+                
+                {/* Khu vực Thông tin (ĐÃ NÂNG CẤP) */}
                 <div className="p-4 flex flex-col flex-grow">
-                  <h3 className="font-bold text-base text-gray-200 group-hover:text-blue-400 transition-colors line-clamp-1 mb-1">{nft.name}</h3>
-                  <div className="mt-auto pt-3 flex justify-between items-end">
+                  <h3 className="font-bold text-lg text-white group-hover:text-blue-400 transition-colors line-clamp-1 mb-1">{nft.name}</h3>
+                  
+                  {/* Bổ sung hiển thị người sở hữu và đường kẻ ngang */}
+                  <p className="text-sm text-gray-400 mb-4 border-b border-gray-800 pb-4">
+                    Sở hữu: {nft.owner ? `${nft.owner.slice(0, 6)}...${nft.owner.slice(-4)}` : "Đang tải..."}
+                  </p>
+
+                  <div className="mt-auto flex justify-between items-center">
                     <div className="flex flex-col">
-                      <span className="text-xs text-gray-500 font-medium">Giá bán</span>
-                      <span className="font-bold text-white flex items-center gap-1"> 
-                        <span className="text-blue-500 text-xs">♦</span> {nft.price} 
+                      <span className="text-xs text-gray-500 font-medium mb-1">Giá</span>
+                      <span className="font-bold text-white flex items-center gap-1.5 text-base"> 
+                        <span className="text-blue-500">♦</span> 
+                        {/* Ép hiển thị 3 số 0 ở đuôi và thêm chữ ETH */}
+                        {Number(nft.price).toFixed(3)} ETH 
                       </span>
                     </div>
+                    
+                    {/* Bổ sung nút Xem */}
+                    <button className="px-5 py-2 bg-[#2a3040] group-hover:bg-blue-600 text-blue-400 group-hover:text-white font-bold rounded-xl text-sm transition-colors">
+                      Xem
+                    </button>
                   </div>
                 </div>
+
               </Link>
             ))}
           </div>
