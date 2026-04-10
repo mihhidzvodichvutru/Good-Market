@@ -1,14 +1,15 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { ethers } from "ethers"; // <-- THÊM THƯ VIỆN NÀY ĐỂ SOI CHỮ KÝ
 
-// Khởi tạo Supabase
-const supabase = createClient(
+// Khởi tạo Supabase: BẮT BUỘC dùng Service Role Key để vượt qua RLS
+// (Ông nhớ vào Supabase copy cái service_role key bỏ vào file .env nhé)
+const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  process.env.SUPABASE_SERVICE_ROLE_KEY! 
 );
 
-// --- [GET] LẤY THÔNG TIN HỒ SƠ ---
-// Cách dùng: GET /api/profile?wallet=0xAbCd...
+// --- [GET] LẤY THÔNG TIN HỒ SƠ (Giữ nguyên của ông) ---
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
@@ -18,23 +19,20 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: "Ông chưa truyền địa chỉ ví (wallet) kìa!" }, { status: 400 });
     }
 
-    // Lấy thông tin từ bảng users
-    const { data, error } = await supabase
+    const { data, error } = await supabaseAdmin
       .from("users")
       .select("*")
-      .eq("wallet_address", wallet.toLowerCase()) // Chuyển hết về chữ thường cho chuẩn chỉ
+      .eq("wallet_address", wallet.toLowerCase()) 
       .single();
 
-    // Lỗi PGRST116 của Supabase nghĩa là "Không tìm thấy dữ liệu" (Ví mới tinh chưa tạo profile)
     if (error && error.code !== "PGRST116") throw error;
 
-    // Nếu tìm thấy thì trả về data, chưa thấy thì trả về một profile rỗng mặc định
     return NextResponse.json(
       data || { 
         wallet_address: wallet, 
         username: "Người chơi ẩn danh", 
         bio: "Chưa có tiểu sử...", 
-        avatar_url: "https://via.placeholder.com/150" // Ảnh mặc định 
+        avatar_url: "https://via.placeholder.com/150" 
       }
     );
 
@@ -44,26 +42,35 @@ export async function GET(request: Request) {
   }
 }
 
-// --- [POST] TẠO MỚI HOẶC CẬP NHẬT HỒ SƠ ---
-// Cách dùng: Gửi JSON body chứa { walletAddress, username, bio, avatarUrl }
+// --- [POST] TẠO MỚI HOẶC CẬP NHẬT HỒ SƠ (Đã bọc thép) ---
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { walletAddress, username, bio, avatarUrl } = body;
+    // Lấy thêm cái chữ ký (signature) từ frontend gửi lên
+    const { walletAddress, username, bio, avatarUrl, signature } = body;
 
-    if (!walletAddress || !username) {
-      return NextResponse.json({ error: "Bắt buộc phải có địa chỉ ví và Tên hiển thị!" }, { status: 400 });
+    // Chặn ngay nếu thiếu chữ ký
+    if (!walletAddress || !username || !signature) {
+      return NextResponse.json({ error: "Thiếu dữ liệu hoặc thiếu chữ ký xác thực!" }, { status: 400 });
     }
 
-    // Tuyệt kỹ UPSERT: Có rồi thì ghi đè, chưa có thì tạo mới
-    const { data, error } = await supabase
+    // 1. DÙNG KÍNH LÚP SOI CHỮ KÝ
+    const message = `Tôi xác nhận cập nhật hồ sơ trên chợ NFT cho ví: ${walletAddress}`;
+    const recoveredAddress = ethers.verifyMessage(message, signature);
+
+    // 2. NẾU SAI VÍ -> ĐUỔI VỀ
+    if (recoveredAddress.toLowerCase() !== walletAddress.toLowerCase()) {
+      return NextResponse.json({ error: "Chữ ký giả mạo hoặc bạn đang xài ví khác!" }, { status: 403 });
+    }
+
+    // 3. NẾU CHUẨN CHỦ VÍ -> CHO PHÉP DÙNG UPSERT
+    const { data, error } = await supabaseAdmin
       .from("users")
       .upsert({
         wallet_address: walletAddress.toLowerCase(),
         username: username,
         bio: bio || "",
         avatar_url: avatarUrl || ""
-        // ĐÃ XÓA DÒNG updated_at CHO KHỚP VỚI DATABASE
       }, {
         onConflict: 'wallet_address' 
       })
