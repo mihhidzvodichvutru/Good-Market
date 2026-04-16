@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { supabase } from "../../lib/supabase"; 
-import { Copy, Check, Search, Filter, Grid, Image as ImageIcon, Video, Music, Loader2 } from "lucide-react";
+import { Copy, Check, Search, Filter, Grid, Image as ImageIcon, Video, Music, Loader2, Heart, Package, PenTool } from "lucide-react";
 
 interface NFT {
   id: number;
@@ -19,9 +19,10 @@ interface NFT {
 export default function ProfilePage() {
   const [currentAccount, setCurrentAccount] = useState<string>("");
   const [nfts, setNfts] = useState<NFT[]>([]);
+  const [likedNfts, setLikedNfts] = useState<NFT[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   
-  const [activeTab, setActiveTab] = useState<"owned" | "created">("owned");
+  const [activeTab, setActiveTab] = useState<"owned" | "created" | "liked">("owned");
   const [searchQuery, setSearchQuery] = useState("");
   const [copied, setCopied] = useState(false);
   
@@ -88,6 +89,31 @@ useEffect(() => {
           .or(`owner.ilike.${currentAccount},creator.ilike.${currentAccount}`)
           .order('id', { ascending: false });
 
+        // 3. FETCH DANH SÁCH YÊU THÍCH (THÊM MỚI)
+        // Dùng nfts(*) để Join bảng likes và bảng nfts lại với nhau
+        const { data: likedData } = await supabase
+          .from('likes')
+          .select('nfts(*)')
+          .eq('user_wallet', currentAccount.toLowerCase())
+          .order('created_at', { ascending: false });
+
+        if (likedData) {
+          // Lọc ra các NFT hợp lệ (đề phòng trường hợp NFT gốc đã bị xóa)
+          const formattedLiked = likedData
+            .filter((item: any) => item.nfts)
+            .map((item: any) => ({
+              id: item.nfts.id,
+              name: item.nfts.name,
+              price: parseFloat(item.nfts.price),
+              owner: (item.nfts.owner || "").toLowerCase(),
+              creator: (item.nfts.creator || item.nfts.owner || "").toLowerCase(),
+              image: item.nfts.image,
+              coverImage: item.nfts.cover_image,
+              mediaType: item.nfts.media_type || "image",
+            }));
+          setLikedNfts(formattedLiked);
+        }  
+
         if (nftData) {
           const formattedData = nftData.map((item: any) => ({
             id: item.id,
@@ -107,9 +133,12 @@ useEffect(() => {
         setIsLoading(false);
       }
     };
+    
 
     fetchFullProfile();
   }, [currentAccount]);
+
+  
 
   // 3. TÁCH BẠCH 2 DANH SÁCH RÕ RÀNG THEO LUẬT CỦA BẠN
   // Lọc ra danh sách Đang Sở Hữu
@@ -121,7 +150,10 @@ useEffect(() => {
   const totalOwnedValue = ownedNfts.reduce((sum, nft) => sum + nft.price, 0);
 
   // Chọn danh sách để render dựa trên Tab đang bấm
-  const currentTabNfts = activeTab === "owned" ? ownedNfts : createdNfts;
+  const currentTabNfts = 
+    activeTab === "owned" ? ownedNfts : 
+    activeTab === "created" ? createdNfts : 
+    likedNfts;
 
   // Cuối cùng là bộ lọc thanh tìm kiếm
   const displayNfts = currentTabNfts.filter(nft => 
@@ -210,14 +242,26 @@ useEffect(() => {
 
         {/* 3. ĐIỀU HƯỚNG TABS (CÓ ĐẾM SỐ LƯỢNG RIÊNG) */}
         <div className="flex gap-6 border-b border-gray-800 mt-10">
-          <button onClick={() => setActiveTab("owned")} className={`pb-4 font-bold text-lg transition-colors relative ${activeTab === "owned" ? "text-white" : "text-gray-500 hover:text-gray-300"}`}>
-            Sở hữu <span className="ml-1.5 text-xs bg-gray-800 px-2 py-0.5 rounded-full">{ownedNfts.length}</span>
-            {activeTab === "owned" && <div className="absolute bottom-0 left-0 w-full h-1 bg-blue-500 rounded-t-full"></div>}
+          
+          {/* TAB SỞ HỮU */}
+          <button onClick={() => setActiveTab("owned")} className={`pb-4 font-bold text-lg transition-colors relative flex items-center gap-1.5 ${activeTab === "owned" ? "text-white" : "text-gray-500 hover:text-gray-300"}`}>
+            <Package size={18} className={activeTab === "owned" ? "text-blue-500" : ""} />
+            Sở hữu <span className="text-xs bg-gray-800 px-2 py-0.5 rounded-full">{ownedNfts.length}</span>
+            {activeTab === "owned" && <div className="absolute bottom-0 left-0 w-full h-1 bg-blue-500 rounded-t-full shadow-[0_0_10px_rgba(59,130,246,0.5)]"></div>}
           </button>
           
-          <button onClick={() => setActiveTab("created")} className={`pb-4 font-bold text-lg transition-colors relative ${activeTab === "created" ? "text-white" : "text-gray-500 hover:text-gray-300"}`}>
-            Đã tạo <span className="ml-1.5 text-xs bg-gray-800 px-2 py-0.5 rounded-full">{createdNfts.length}</span>
-            {activeTab === "created" && <div className="absolute bottom-0 left-0 w-full h-1 bg-blue-500 rounded-t-full"></div>}
+          {/* TAB ĐÃ TẠO */}
+          <button onClick={() => setActiveTab("created")} className={`pb-4 font-bold text-lg transition-colors relative flex items-center gap-1.5 ${activeTab === "created" ? "text-white" : "text-gray-500 hover:text-gray-300"}`}>
+            <PenTool size={18} className={activeTab === "created" ? "text-blue-500" : ""} />
+            Đã tạo <span className="text-xs bg-gray-800 px-2 py-0.5 rounded-full">{createdNfts.length}</span>
+            {activeTab === "created" && <div className="absolute bottom-0 left-0 w-full h-1 bg-blue-500 rounded-t-full shadow-[0_0_10px_rgba(59,130,246,0.5)]"></div>}
+          </button>
+
+          {/* TAB YÊU THÍCH */}
+          <button onClick={() => setActiveTab("liked")} className={`pb-4 font-bold text-lg transition-colors relative flex items-center gap-1.5 ${activeTab === "liked" ? "text-white" : "text-gray-500 hover:text-gray-300"}`}>
+            <Heart size={18} className={activeTab === "liked" ? "text-red-500 fill-red-500" : ""} />
+            Yêu thích <span className="text-xs bg-gray-800 px-2 py-0.5 rounded-full">{likedNfts.length}</span>
+            {activeTab === "liked" && <div className="absolute bottom-0 left-0 w-full h-1 bg-red-500 rounded-t-full shadow-[0_0_10px_rgba(239,68,68,0.5)]"></div>}
           </button>
         </div>
 

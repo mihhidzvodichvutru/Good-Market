@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from "react";
 import { User, Image as ImageIcon, Save, Loader2, Camera, ArrowLeft } from "lucide-react";
 import toast from "react-hot-toast";
 import { useRouter } from "next/navigation";
-import { ethers } from "ethers"; // <-- BẮT BUỘC THÊM DÒNG NÀY
+import { ethers } from "ethers"; 
 
 export default function SettingsPage() {
   const router = useRouter();

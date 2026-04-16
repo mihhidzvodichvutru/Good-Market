@@ -3,9 +3,10 @@
 import { useState, useEffect, use, useRef } from "react";
 import Link from "next/link";
 import { supabase } from "../../../lib/supabase";
-import { UserCircle, Tag, Clock, Package, ArrowLeft, Loader2, DollarSign, History, Music, Play, Pause, Volume2, Video as VideoIcon, Camera } from "lucide-react";
+import { UserCircle, Tag, Clock, Package, ArrowLeft, Loader2, DollarSign, History, Music, Play, Pause, Volume2, Video as VideoIcon, Camera, Heart, Edit } from "lucide-react";
 import toast from 'react-hot-toast';
 import { useRouter } from "next/navigation";
+import { ethers } from "ethers";
 
 // 1. Cập nhật Model dữ liệu (Thêm coverImage)
 interface NFT {
@@ -21,6 +22,14 @@ interface NFT {
   mediaType: "image" | "video" | "audio";
   isTrending: boolean;
   createdAt: string; 
+}
+interface Activity {
+  id: string;
+  action_type: 'MINTED' | 'LISTED' | 'PRICE_CHANGED' | 'SOLD' | 'DELISTED';
+  from_wallet: string;
+  to_wallet?: string;
+  price?: number;
+  created_at: string;
 }
 
 // BƯỚC 1: HÀM GIẢI MÃ LINK IPFS (ĐÃ NÂNG CẤP LÊN CỔNG VIP)
@@ -150,6 +159,18 @@ export default function NFTDetails({ params }: { params: Promise<{ id: string }>
   
   const [currentAccount, setCurrentAccount] = useState<string | null>(null);
 
+  const [isEditing, setIsEditing] = useState(false);
+  const [editPrice, setEditPrice] = useState("");
+  const [editDescription, setEditDescription] = useState("");
+  const [isSaving, setIsSaving] = useState(false);
+
+  const [likesCount, setLikesCount] = useState(0);
+  const [isLiked, setIsLiked] = useState(false);
+  const [isLiking, setIsLiking] = useState(false);
+
+  const [activities, setActivities] = useState<Activity[]>([]);
+  const [isHistoryLoading, setIsHistoryLoading] = useState(true);
+
   useEffect(() => {
     const checkWallet = async () => {
       if (typeof window !== "undefined" && (window as any).ethereum) {
@@ -225,6 +246,101 @@ export default function NFTDetails({ params }: { params: Promise<{ id: string }>
     fetchNFTDetails();
   }, [id]);
 
+  // --- HÀM 1: Lấy tổng số Like và xem user đã like chưa ---
+  useEffect(() => {
+    const fetchLikes = async () => {
+      if (!nft) return;
+      // Đếm tổng số tim
+      const { count } = await supabase.from('likes').select('*', { count: 'exact', head: true }).eq('nft_id', nft.id);
+      setLikesCount(count || 0);
+
+      // Kiểm tra xem ví hiện tại đã thả tim chưa
+      if (currentAccount) {
+        const { data } = await supabase.from('likes').select('id').eq('nft_id', nft.id).eq('user_wallet', currentAccount.toLowerCase()).single();
+        setIsLiked(!!data);
+      }
+    };
+    fetchLikes();
+  }, [nft, currentAccount]);
+
+  const fetchActivityHistory = async () => {
+  if (!nft) return;
+  setIsHistoryLoading(true);
+  try {
+    const { data, error } = await supabase
+      .from('activity_history')
+      .select('*')
+      .eq('nft_id', nft.id)
+      .order('created_at', { ascending: false }); // Mới nhất hiện lên đầu
+
+    if (error) throw error;
+    setActivities(data || []);
+  } catch (err) {
+    console.error("Lỗi tải lịch sử:", err);
+  } finally {
+    setIsHistoryLoading(false);
+  }
+};
+
+// Gọi hàm này trong useEffect khi nft.id thay đổi
+useEffect(() => {
+  fetchActivityHistory();
+}, [nft?.id]);
+
+  // --- HÀM 2: Giao tiếp MetaMask khi bấm thả tim (Đã fix UX) ---
+  const handleLike = async () => {
+    if (!currentAccount) return toast.error("Vui lòng kết nối ví để thả tim!");
+    if (!nft) return;
+
+    setIsLiking(true);
+    
+    // 1. Phân loại hành động để hiện chữ cho đúng
+    const isUnliking = isLiked; // Nếu đang có tim -> Hành động là Bỏ tim
+    const actionText = isUnliking ? "BỎ Like" : "Like";
+    const toastMessage = isUnliking ? "để hủy like..." : "để like...";
+    
+    const toastId = toast.loading(`🦊 Ký xác nhận trên MetaMask ${toastMessage}`);
+
+    try {
+      const provider = new ethers.BrowserProvider((window as any).ethereum);
+      const signer = await provider.getSigner();
+      
+      // 2. Chữ ký giờ đã tự động đổi theo trạng thái
+      const message = `Tôi xác nhận ${actionText} tác phẩm NFT ID: ${nft.id}`;
+      const signature = await signer.signMessage(message);
+
+      const res = await fetch('/api/like', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          nftId: nft.id, 
+          walletAddress: currentAccount, 
+          signature,
+          actionIntent: isUnliking ? 'unlike' : 'like' // Báo cho Backend biết ông đang ký câu nào
+        })
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+
+      // Cập nhật giao diện
+      if (data.action === 'liked') {
+        setIsLiked(true);
+        setLikesCount(prev => prev + 1);
+        toast.success("❤️ Like thành công!", { id: toastId });
+      } else {
+        setIsLiked(false);
+        setLikesCount(prev => prev - 1);
+        toast.success("💔 Đã bỏ like!", { id: toastId });
+      }
+    } catch (error: any) {
+      if (error.code === 4001) toast.error("Bạn đã hủy ký.", { id: toastId });
+      else toast.error("Lỗi: " + error.message, { id: toastId });
+    } finally {
+      setIsLiking(false);
+    }
+  };
+
   // 1. Hàm thực thi việc Xóa (Chỉ chạy khi người dùng bấm "Đồng ý" trên Toast)
   const executeDelete = async () => {
     if (!nft) return;
@@ -294,6 +410,65 @@ export default function NFTDetails({ params }: { params: Promise<{ id: string }>
         </div>
       </div>
     ), { duration: Infinity }); // Đặt Infinity để pop-up không tự tắt, bắt người dùng phải bấm nút
+  };
+
+  const handleSaveEdit = async () => {
+    if (!nft || !currentAccount) return;
+    
+    if (!editPrice || parseFloat(editPrice) <= 0) {
+      toast.error("Giá bán phải lớn hơn 0!");
+      return;
+    }
+
+    setIsSaving(true);
+    const toastId = toast.loading("🦊 Vui lòng ký xác nhận trên MetaMask...");
+
+    try {
+      // 1. Gọi MetaMask lên ký xác nhận
+      const provider = new ethers.BrowserProvider((window as any).ethereum);
+      const signer = await provider.getSigner();
+      
+      // Câu thần chú này phải khớp 100% với bên Backend
+      const message = "Tôi xác nhận cập nhật thông tin và đăng bán lại NFT này";
+      const signature = await signer.signMessage(message);
+
+      // 2. Gửi lên API để kiểm duyệt và lưu
+      toast.loading("Đang đồng bộ dữ liệu lên hệ thống...", { id: toastId });
+      
+      const res = await fetch('/api/update-nft', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          nftId: nft.id,
+          walletAddress: currentAccount,
+          newPrice: editPrice,
+          newDescription: editDescription,
+          signature
+        })
+      });
+
+      // 1. Chờ Backend trả lời và kiểm tra lỗi TRƯỚC TIÊN
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+
+      // 2. Cập nhật giao diện thành công
+      toast.success("Đăng bán lại thành công!", { id: toastId });
+      setNft({ ...nft, price: parseFloat(editPrice), description: editDescription });
+      setIsEditing(false);
+
+      // 3. Tải lại lịch sử SAU KHI Backend đã tự động ghi log xong
+      fetchActivityHistory();
+
+    } catch (error: any) {
+      console.error(error);
+      if (error.code === 4001 || error.message.includes("user rejected")) {
+        toast.error("Bạn đã hủy ký xác nhận.", { id: toastId });
+      } else {
+        toast.error(error.message || "Lỗi khi lưu!", { id: toastId });
+      }
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const formatAddress = (addr: string) => {
@@ -392,9 +567,25 @@ export default function NFTDetails({ params }: { params: Promise<{ id: string }>
           {/* CỘT PHẢI: Thông tin */}
           <div className="flex flex-col space-y-8">
             <div>
-              <h1 className="text-4xl md:text-5xl font-extrabold tracking-tight mb-4 text-white">
-                {nft.name}
-              </h1>
+              <div className="flex justify-between items-start gap-4 mb-4">
+                <h1 className="text-4xl md:text-5xl font-extrabold tracking-tight text-white flex-1">
+                  {nft.name}
+                </h1>
+                
+                {/* NÚT THẢ TIM CHỐNG BOT */}
+                <button 
+                  onClick={handleLike}
+                  disabled={isLiking}
+                  className={`flex items-center gap-2 px-5 py-3 rounded-2xl font-bold border-2 transition-all shrink-0 ${
+                    isLiked 
+                      ? 'bg-red-500/10 text-red-500 border-red-500/30 hover:bg-red-500/20' 
+                      : 'bg-gray-800 text-gray-400 border-gray-700 hover:bg-gray-700 hover:text-white hover:border-gray-500'
+                  }`}
+                >
+                  <Heart size={24} className={`transition-transform ${isLiked ? 'fill-red-500 scale-110' : 'scale-100 hover:scale-110'}`} />
+                  <span className="text-lg">{likesCount}</span>
+                </button>
+              </div>
               <div className="mb-6 text-lg flex items-center gap-2">
                 <span className="text-gray-400 font-medium">Tạo bởi</span>
                 <Link 
@@ -427,40 +618,97 @@ export default function NFTDetails({ params }: { params: Promise<{ id: string }>
               <AudioPlayer src={resolveIpfsUrl(nft.image)} />
             )}
 
-            {/* Mô tả từ Database (whispace-pre-wrap để giữ format xuống dòng) */}
+            {/* --- 1. KHU VỰC MÔ TẢ --- */}
             <div className="bg-gray-800/30 p-6 rounded-2xl border border-gray-700">
               <h3 className="text-lg font-bold mb-3 text-gray-200">Mô tả chi tiết</h3>
-              <p className="text-gray-400 leading-relaxed whitespace-pre-wrap">
-                {nft.description || "Tác giả chưa cung cấp mô tả cho tác phẩm này."}
-              </p>
+              {isEditing ? (
+                // Nếu đang Edit -> Hiện ô Textarea để gõ
+                <textarea 
+                  value={editDescription}
+                  onChange={(e) => setEditDescription(e.target.value)}
+                  className="w-full bg-gray-900 border border-gray-700 rounded-xl p-4 text-white focus:outline-none focus:border-blue-500 transition-colors resize-none"
+                  rows={4}
+                  placeholder="Nhập mô tả mới cho tác phẩm..."
+                />
+              ) : (
+                // Nếu bình thường -> Hiện chữ tĩnh
+                <p className="text-gray-400 leading-relaxed whitespace-pre-wrap">
+                  {nft.description || "Tác giả chưa cung cấp mô tả cho tác phẩm này."}
+                </p>
+              )}
             </div>
 
-            {/* Giá và Nút hành động */}
-            <div className="bg-gray-800 p-6 rounded-3xl border border-gray-700 shadow-xl">
+            {/* --- 2. KHU VỰC GIÁ VÀ NÚT HÀNH ĐỘNG --- */}
+            <div className="bg-gray-800 p-6 rounded-3xl border border-gray-700 shadow-xl mt-6">
               <p className="text-sm text-gray-400 mb-2 font-medium">Giá hiện tại</p>
-              <div className="flex items-end gap-2 mb-6">
-                <span className="text-5xl font-extrabold text-white">♦ {nft.price.toFixed(3)}</span>
-                <span className="text-xl text-gray-400 font-bold mb-1">ETH</span>
-                <span className="text-lg text-green-400 font-medium mb-1 ml-2">(~$ {(nft.price * 3500).toLocaleString('en-US', {maximumFractionDigits: 0})})</span>
-              </div>
               
-              {/* --- ĐIỀU KIỆN HIỂN THỊ NÚT BẤM THEO PHÂN QUYỀN (GIỮ NGUYÊN) --- */}
-              {currentAccount?.toLowerCase() === nft.owner.toLowerCase() ? (
-                // LÀ CHỦ SỞ HỮU -> Hiện Sửa / Xóa
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <button 
-                    onClick={() => toast.error("Sẽ chuyển sang trang Chỉnh sửa thông tin!")}
-                    className="w-full py-4 rounded-xl font-bold text-lg text-white bg-gray-700 hover:bg-gray-600 transition-colors"
-                  >
-                    ✏️ Chỉnh sửa tác phẩm
-                  </button>
-                  <button 
-                    onClick={handleDeleteNFT}
-                    className="w-full py-4 rounded-xl font-bold text-lg text-red-500 bg-red-500/10 hover:bg-red-500 hover:text-white transition-all border border-red-500/20 shadow-lg"
-                  >
-                    🗑️ Thu hồi & Xóa 
-                  </button>
+              {isEditing ? (
+                // Nếu đang Edit -> Hiện ô Input nhập số
+                <div className="mb-6 relative">
+                  <span className="absolute left-4 top-1/2 -translate-y-1/2 text-xl text-gray-400 font-bold">♦</span>
+                  <input 
+                    type="number" 
+                    value={editPrice}
+                    onChange={(e) => setEditPrice(e.target.value)}
+                    className="w-full text-3xl font-extrabold bg-gray-900 border border-gray-700 rounded-xl pl-10 pr-4 py-3 text-white focus:outline-none focus:border-blue-500 transition-colors"
+                    placeholder="Ví dụ: 0.5"
+                    step="0.001"
+                  />
                 </div>
+              ) : (
+                // Nếu bình thường -> Hiện số tĩnh (Giữ nguyên phần tính USD của ông)
+                <div className="flex items-end gap-2 mb-6">
+                  <span className="text-5xl font-extrabold text-white">♦ {nft.price.toFixed(3)}</span>
+                  <span className="text-xl text-gray-400 font-bold mb-1">ETH</span>
+                  <span className="text-lg text-green-400 font-medium mb-1 ml-2">
+                    (~$ {(nft.price * 3500).toLocaleString('en-US', {maximumFractionDigits: 0})})
+                  </span>
+                </div>
+              )}
+              
+              {/* --- 3. ĐIỀU KIỆN HIỂN THỊ NÚT BẤM THEO PHÂN QUYỀN --- */}
+              {currentAccount?.toLowerCase() === nft.owner.toLowerCase() ? (
+                // LÀ CHỦ SỞ HỮU
+                isEditing ? (
+                  // Trạng thái 1: Đang bật form chỉnh sửa
+                  <div className="grid grid-cols-2 gap-4">
+                    <button 
+                      onClick={() => setIsEditing(false)}
+                      disabled={isSaving}
+                      className="py-4 rounded-xl font-bold text-lg text-gray-300 bg-gray-700 hover:bg-gray-600 transition-colors border border-gray-600"
+                    >
+                      Hủy bỏ
+                    </button>
+                    <button 
+                      onClick={handleSaveEdit}
+                      disabled={isSaving}
+                      className="py-4 rounded-xl font-bold text-lg text-white bg-blue-600 hover:bg-blue-500 flex justify-center items-center gap-2 transition-all shadow-lg shadow-blue-500/30 disabled:opacity-50"
+                    >
+                      {isSaving ? <Loader2 className="animate-spin" size={20}/> : "Lưu & Đăng bán"}
+                    </button>
+                  </div>
+                ) : (
+                  // Trạng thái 2: Hiển thị bình thường (như cũ)
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <button 
+                      onClick={() => {
+                        // Đổ dữ liệu cũ vào state trước khi bật form
+                        setEditPrice(nft.price.toString());
+                        setEditDescription(nft.description || "");
+                        setIsEditing(true);
+                      }}
+                      className="w-full py-4 rounded-xl font-bold text-lg text-white bg-gray-700 hover:bg-gray-600 transition-colors shadow-lg"
+                    >
+                      ✏️ Chỉnh sửa & Bán
+                    </button>
+                    <button 
+                      onClick={handleDeleteNFT}
+                      className="w-full py-4 rounded-xl font-bold text-lg text-red-500 bg-red-500/10 hover:bg-red-500 hover:text-white transition-all border border-red-500/20 shadow-lg"
+                    >
+                      🗑️ Thu hồi & Xóa 
+                    </button>
+                  </div>
+                )
               ) : (
                 // KHÁCH XEM -> Hiện Mua / Đề nghị giá
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -474,8 +722,98 @@ export default function NFTDetails({ params }: { params: Promise<{ id: string }>
               )}
             </div>
             
-            <div className="bg-gray-800/30 p-6 rounded-2xl border border-gray-700"> <h3 className="text-lg font-bold mb-4 text-gray-200 flex items-center gap-2"> <History size={18} className="text-blue-400" /> Lịch sử hoạt động </h3> <div className="space-y-3"> <div className="flex justify-between text-sm bg-gray-800 p-3 rounded-lg border border-gray-700"> <span className="text-green-400 font-medium">Minted (Đúc)</span> <span className="text-gray-400 font-mono">{formatAddress(nft.owner)}</span> <span className="text-gray-500">{new Date(nft.createdAt).toLocaleDateString('vi-VN')}</span> </div> </div> </div>
+            <div className="bg-gray-800/30 p-6 rounded-2xl border border-gray-700">
+  <h3 className="text-lg font-bold mb-4 text-gray-200 flex items-center gap-2">
+    <History size={18} className="text-blue-400" /> Lịch sử hoạt động
+  </h3>
 
+  <div className="space-y-4">
+    {isHistoryLoading ? (
+      // 1. KHI ĐANG TẢI: Hiện 2 khung xương nhấp nháy
+      [1, 2].map((i) => (
+        <div key={i} className="h-16 bg-gray-800/50 animate-pulse rounded-xl w-full"></div>
+      ))
+    ) : (
+      <>
+        {/* 2. RENDER LỊCH SỬ TỪ DATABASE (Thay đổi giá, Đã bán,...) */}
+        {activities.map((act) => {
+          let icon = <Tag size={16} />;
+          let label = "Hoạt động";
+          let colorClass = "text-gray-400";
+
+          switch (act.action_type) {
+            case 'MINTED':
+              icon = <Package size={16} />;
+              label = "Đã đúc (Minted)";
+              colorClass = "text-green-400";
+              break;
+            case 'LISTED':
+              icon = <Tag size={16} />;
+              label = "Đã niêm yết";
+              colorClass = "text-blue-400";
+              break;
+            case 'PRICE_CHANGED':
+              icon = <Edit size={16} />;
+              label = "Thay đổi giá";
+              colorClass = "text-yellow-400";
+              break;
+            case 'SOLD':
+              icon = <DollarSign size={16} />;
+              label = "Đã bán";
+              colorClass = "text-purple-400";
+              break;
+          }
+
+          return (
+            <div key={act.id} className="flex items-center justify-between p-4 bg-gray-800/40 rounded-xl border border-gray-700/50 hover:bg-gray-800/60 transition-colors">
+              <div className="flex items-center gap-3">
+                <div className={`p-2 rounded-lg bg-gray-900 ${colorClass}`}>
+                  {icon}
+                </div>
+                <div>
+                  <p className="font-bold text-white text-sm">{label}</p>
+                  <p className="text-xs text-gray-500">
+                    bởi <span className="text-blue-400">{act.from_wallet.slice(0, 6)}...{act.from_wallet.slice(-4)}</span>
+                  </p>
+                </div>
+              </div>
+              <div className="text-right">
+                {act.price && (
+                  <p className="font-black text-white text-sm">♦ {act.price} ETH</p>
+                )}
+                <p className="text-[10px] text-gray-500 uppercase tracking-widest">
+                  {new Date(act.created_at).toLocaleDateString('vi-VN')}
+                </p>
+              </div>
+            </div>
+          );
+        })}
+
+        {/* 3. DÒNG "ĐÃ ĐÚC" CHỐT SỔ (Dành cho các NFT cũ chưa có log MINTED trong DB) */}
+        {!activities.some(act => act.action_type === 'MINTED') && (
+          <div className="flex items-center justify-between p-4 bg-gray-800/40 rounded-xl border border-gray-700/50">
+            <div className="flex items-center gap-3">
+              <div className="p-2 rounded-lg bg-gray-900 text-green-400">
+                <Package size={16} />
+              </div>
+              <div>
+                <p className="font-bold text-white text-sm">Đã đúc (Minted)</p>
+                <p className="text-xs text-gray-500">
+                  bởi <span className="text-blue-400">{nft?.creator?.slice(0, 6) || "0x000"}...</span>
+                </p>
+              </div>
+            </div>
+            <div className="text-right">
+              <p className="text-[10px] text-gray-500 uppercase tracking-widest">
+                {nft?.createdAt ? new Date(nft.createdAt).toLocaleDateString('vi-VN') : "Vừa xong"}
+              </p>
+            </div>
+          </div>
+        )}
+      </>
+    )}
+  </div>
+</div>
           </div>
         </div>
       </div>

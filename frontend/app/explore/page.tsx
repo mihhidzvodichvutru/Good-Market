@@ -37,6 +37,7 @@ export default function Explore() {
 
   const [searchQuery, setSearchQuery] = useState("");
   const [activeFilter, setActiveFilter] = useState("latest");
+  const [hotNftIds, setHotNftIds] = useState<number[]>([]);
 
   // HÀM GIẢI MÃ LINK IPFS
   const resolveIpfsUrl = (url: string | undefined) => {
@@ -83,6 +84,19 @@ export default function Explore() {
     return resolveIpfsUrl(nft.image);
   };
 
+  const fetchHotNfts = async () => {
+    try {
+      const { data, error } = await supabase.rpc('get_hot_nft_ids');
+      if (error) throw error;
+      if (data) {
+        // Chuyển mảng object [{nft_id: 1}, ...] thành mảng số [1, ...]
+        setHotNftIds(data.map((item: any) => item.nft_id));
+      }
+    } catch (err) {
+      console.error("Lỗi lấy danh sách HOT:", err);
+    }
+  };
+
   useEffect(() => {
     const fetchNFTs = async () => {
       setIsLoading(true);
@@ -91,6 +105,7 @@ export default function Explore() {
         const { data, error } = await supabase
           .from('nfts')
           .select('*')
+          .gt('price', 0)
           .order('id', { ascending: false });
 
         if (error) {
@@ -125,6 +140,7 @@ export default function Explore() {
     };
 
     fetchNFTs();
+    fetchHotNfts(); // Thêm dòng này vào cuối useEffect
   }, []);
 
   useEffect(() => {
@@ -154,6 +170,12 @@ export default function Explore() {
   const renderNFTCard = (nft: NFT) => (
     <Link href={`/explore/${nft.id}`} key={`featured-${nft.id}`} className="group flex flex-col rounded-3xl bg-gray-800 border border-gray-700 overflow-hidden hover:-translate-y-2 hover:shadow-[0_10px_40px_rgba(37,99,235,0.2)] transition-all duration-300">
       <div className="aspect-square bg-gray-700 relative overflow-hidden flex items-center justify-center">
+        {hotNftIds.includes(nft.id) && (
+        <div className="absolute top-3 left-3 z-20 bg-gradient-to-r from-red-600 to-orange-500 text-white text-[10px] font-black px-2.5 py-1 rounded-md shadow-lg flex items-center gap-1 uppercase tracking-tighter animate-pulse border border-white/20">
+          <span>🔥</span> HOT
+        </div>
+      )}
+      {/* ----------------------------- */}
         {nft.mediaType === "image" && (
           <div className="w-full h-full relative">
             <img src={resolveIpfsUrl(nft.image)} alt={nft.name} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700 ease-in-out"/>
