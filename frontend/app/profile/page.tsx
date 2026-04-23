@@ -5,6 +5,9 @@ import Link from "next/link";
 import { supabase } from "../../lib/supabase"; 
 import { Copy, Check, Search, Filter, Grid, Image as ImageIcon, Video, Music, Loader2 } from "lucide-react";
 
+// --- CÁC KHUÔN MẪU DỮ LIỆU ĐỂ TRỊ LỖI ESLINT "ANY" ---
+
+// 1. Khuôn mẫu cho NFT hiển thị trên web
 interface NFT {
   id: number;
   name: string;
@@ -14,6 +17,25 @@ interface NFT {
   image: string;
   coverImage?: string;
   mediaType: "image" | "video" | "audio";
+}
+
+// 2. Khuôn mẫu cho dữ liệu thô tải về từ Supabase
+interface SupabaseNFTRow {
+  id: number;
+  name?: string;
+  price?: string | number;
+  owner?: string;
+  creator?: string;
+  image: string;
+  cover_image?: string;
+  media_type?: "image" | "video" | "audio";
+}
+
+// 3. Khuôn mẫu cho ví MetaMask đính kèm vào Window
+interface EthereumWindow {
+  ethereum?: {
+    request: (args: { method: string }) => Promise<string[]>;
+  };
 }
 
 export default function ProfilePage() {
@@ -40,33 +62,39 @@ export default function ProfilePage() {
     return url;
   };
 
-  // 1. Kết nối và lấy ví hiện tại
+  // 1. Kết nối và lấy ví hiện tại (ĐÃ SỬA LỖI ANY)
   useEffect(() => {
     const checkWallet = async () => {
-      if (typeof window !== "undefined" && (window as any).ethereum) {
-        try {
-          const accounts = await (window as any).ethereum.request({ method: 'eth_accounts' });
-          if (accounts.length > 0) {
-            setCurrentAccount(accounts[0].toLowerCase());
-          } else {
-            setIsLoading(false); 
+      if (typeof window !== "undefined") {
+        // Ép kiểu window an toàn thay vì dùng any
+        const ethWindow = window as unknown as EthereumWindow;
+        
+        if (ethWindow.ethereum) {
+          try {
+            const accounts = await ethWindow.ethereum.request({ method: 'eth_accounts' });
+            if (accounts && accounts.length > 0) {
+              setCurrentAccount(accounts[0].toLowerCase().trim());
+            } else {
+              setIsLoading(false); 
+            }
+          } catch (err) {
+            console.error("Lỗi lấy thông tin ví:", err);
           }
-        } catch (err) {
-          console.error("Lỗi lấy thông tin ví:", err);
+        } else {
+          setIsLoading(false);
         }
       }
     };
     checkWallet();
   }, []);
 
-// 2. CHỌC THẲNG DATABASE: Lấy tất cả NFT liên quan đến ví này
-useEffect(() => {
+  // 2. CHỌC THẲNG DATABASE: Lấy tất cả NFT liên quan đến ví này
+  useEffect(() => {
     const fetchFullProfile = async () => {
       if (!currentAccount) return;
       setIsLoading(true);
       
       try {
-        // 1. FETCH THÔNG TIN CÁ NHÂN (Nghệ danh, Bio, Avatar)
         const { data: userData } = await supabase
           .from('users')
           .select('*')
@@ -81,20 +109,20 @@ useEffect(() => {
           });
         }
 
-        // 2. FETCH DANH SÁCH NFT (Giữ nguyên logic cũ của ông)
         const { data: nftData, error } = await supabase
           .from('nfts')
           .select('*')
-          .or(`owner.ilike.${currentAccount},creator.ilike.${currentAccount}`)
+          .or(`owner.ilike.%${currentAccount}%,creator.ilike.%${currentAccount}%`)
           .order('id', { ascending: false });
 
         if (nftData) {
-          const formattedData = nftData.map((item: any) => ({
+          // ĐÃ SỬA LỖI ANY BẰNG GIAO DIỆN SupabaseNFTRow
+          const formattedData = nftData.map((item: SupabaseNFTRow) => ({
             id: item.id,
-            name: item.name,
-            price: parseFloat(item.price),
-            owner: (item.owner || "").toLowerCase(),
-            creator: (item.creator || item.owner || "").toLowerCase(),
+            name: item.name || "Tác phẩm Ẩn danh", 
+            price: parseFloat(String(item.price || 0)), // Ép kiểu an toàn
+            owner: (item.owner || "").toLowerCase().trim(),
+            creator: (item.creator || item.owner || "").toLowerCase().trim(),
             image: item.image,
             coverImage: item.cover_image,
             mediaType: item.media_type || "image",
@@ -111,21 +139,15 @@ useEffect(() => {
     fetchFullProfile();
   }, [currentAccount]);
 
-  // 3. TÁCH BẠCH 2 DANH SÁCH RÕ RÀNG THEO LUẬT CỦA BẠN
-  // Lọc ra danh sách Đang Sở Hữu
+  // 3. TÁCH BẠCH 2 DANH SÁCH RÕ RÀNG
   const ownedNfts = nfts.filter(nft => nft.owner === currentAccount);
-  // Lọc ra danh sách Đã Tạo
   const createdNfts = nfts.filter(nft => nft.creator === currentAccount);
 
-  // Tính toán số liệu hiển thị trên màn hình
   const totalOwnedValue = ownedNfts.reduce((sum, nft) => sum + nft.price, 0);
-
-  // Chọn danh sách để render dựa trên Tab đang bấm
   const currentTabNfts = activeTab === "owned" ? ownedNfts : createdNfts;
 
-  // Cuối cùng là bộ lọc thanh tìm kiếm
   const displayNfts = currentTabNfts.filter(nft => 
-    nft.name.toLowerCase().includes(searchQuery.toLowerCase())
+    (nft.name || "").toLowerCase().includes(searchQuery.toLowerCase())
   );
 
   const copyToClipboard = () => {
@@ -159,45 +181,45 @@ useEffect(() => {
       </div>
 
       {/* 2. KHU VỰC THÔNG TIN */}
-<div className="max-w-7xl mx-auto px-4 md:px-8 relative">
-  <div className="flex flex-col md:flex-row md:justify-between items-start">
-    
-    <div className="flex flex-col -mt-20 relative z-10 mb-6 md:mb-0">
-      {/* Khối Avatar */}
-      <div className="w-36 h-36 rounded-full border-4 border-[#0e111a] overflow-hidden bg-gray-800 shadow-2xl mb-4">
-        {userMetadata.avatar_url ? (
-          <img 
-            src={resolveIpfsUrl(userMetadata.avatar_url)} 
-            className="w-full h-full object-cover" 
-            alt="Avatar" 
-          />
-        ) : (
-          <div className="w-full h-full" style={{ background: generateAvatarGradient(currentAccount) }}></div>
-        )}
-      </div>
-      
-      {/* 1. Tên Nghệ danh */}
-      <div className="mb-2">
-        <h1 className="text-3xl font-black text-white">{userMetadata.username}</h1>
-      </div>
+      <div className="max-w-7xl mx-auto px-4 md:px-8 relative">
+        <div className="flex flex-col md:flex-row md:justify-between items-start">
+          
+          <div className="flex flex-col -mt-20 relative z-10 mb-6 md:mb-0">
+            {/* Khối Avatar */}
+            <div className="w-36 h-36 rounded-full border-4 border-[#0e111a] overflow-hidden bg-gray-800 shadow-2xl mb-4">
+              {userMetadata.avatar_url ? (
+                <img 
+                  src={resolveIpfsUrl(userMetadata.avatar_url)} 
+                  className="w-full h-full object-cover" 
+                  alt="Avatar" 
+                />
+              ) : (
+                <div className="w-full h-full" style={{ background: generateAvatarGradient(currentAccount) }}></div>
+              )}
+            </div>
+            
+            {/* Tên Nghệ danh */}
+            <div className="mb-2">
+              <h1 className="text-3xl font-black text-white">{userMetadata.username}</h1>
+            </div>
 
-      {/* 2. Địa chỉ ví (Đã chuyển lên trên Bio) */}
-      <div className="flex items-center gap-2 mb-4">
-        <div 
-          className="flex items-center gap-2 bg-gray-800/60 rounded-full px-4 py-1.5 border border-gray-700/50 hover:bg-gray-700/60 cursor-pointer transition-colors" 
-          onClick={copyToClipboard}
-        >
-          <span className="font-mono text-gray-300 text-sm">
-            {currentAccount ? `${currentAccount.slice(0, 6)}...${currentAccount.slice(-4)}` : "Đang tải..."}
-          </span>
-          {copied ? <Check size={14} className="text-green-400" /> : <Copy size={14} className="text-gray-400" />}
-        </div>
-      </div>
+            {/* Địa chỉ ví */}
+            <div className="flex items-center gap-2 mb-4">
+              <div 
+                className="flex items-center gap-2 bg-gray-800/60 rounded-full px-4 py-1.5 border border-gray-700/50 hover:bg-gray-700/60 cursor-pointer transition-colors" 
+                onClick={copyToClipboard}
+              >
+                <span className="font-mono text-gray-300 text-sm">
+                  {currentAccount ? `${currentAccount.slice(0, 6)}...${currentAccount.slice(-4)}` : "Đang tải..."}
+                </span>
+                {copied ? <Check size={14} className="text-green-400" /> : <Copy size={14} className="text-gray-400" />}
+              </div>
+            </div>
 
-      {/* 3. Tiểu sử (Bio) (Đã chuyển xuống dưới cùng) */}
-      <p className="text-gray-400 max-w-lg leading-relaxed">
-        {userMetadata.bio || "Người dùng này chưa cập nhật tiểu sử."}
-      </p>
+            {/* Tiểu sử */}
+            <p className="text-gray-400 max-w-lg leading-relaxed">
+              {userMetadata.bio || "Người dùng này chưa cập nhật tiểu sử."}
+            </p>
           </div>
 
           <div className="flex gap-8 md:mt-6 bg-[#1a202c]/50 p-6 rounded-2xl border border-gray-800/50 backdrop-blur-sm">
@@ -208,7 +230,7 @@ useEffect(() => {
           </div>
         </div>
 
-        {/* 3. ĐIỀU HƯỚNG TABS (CÓ ĐẾM SỐ LƯỢNG RIÊNG) */}
+        {/* 3. ĐIỀU HƯỚNG TABS */}
         <div className="flex gap-6 border-b border-gray-800 mt-10">
           <button onClick={() => setActiveTab("owned")} className={`pb-4 font-bold text-lg transition-colors relative ${activeTab === "owned" ? "text-white" : "text-gray-500 hover:text-gray-300"}`}>
             Sở hữu <span className="ml-1.5 text-xs bg-gray-800 px-2 py-0.5 rounded-full">{ownedNfts.length}</span>
@@ -267,11 +289,10 @@ useEffect(() => {
                   </div>
                 </div>
                 
-                {/* Khu vực Thông tin (ĐÃ NÂNG CẤP) */}
+                {/* Khu vực Thông tin */}
                 <div className="p-4 flex flex-col flex-grow">
                   <h3 className="font-bold text-lg text-white group-hover:text-blue-400 transition-colors line-clamp-1 mb-1">{nft.name}</h3>
                   
-                  {/* Bổ sung hiển thị người sở hữu và đường kẻ ngang */}
                   <p className="text-sm text-gray-400 mb-4 border-b border-gray-800 pb-4">
                     Sở hữu: {nft.owner ? `${nft.owner.slice(0, 6)}...${nft.owner.slice(-4)}` : "Đang tải..."}
                   </p>
@@ -281,12 +302,10 @@ useEffect(() => {
                       <span className="text-xs text-gray-500 font-medium mb-1">Giá</span>
                       <span className="font-bold text-white flex items-center gap-1.5 text-base"> 
                         <span className="text-blue-500">♦</span> 
-                        {/* Ép hiển thị 3 số 0 ở đuôi và thêm chữ ETH */}
                         {Number(nft.price).toFixed(3)} ETH 
                       </span>
                     </div>
                     
-                    {/* Bổ sung nút Xem */}
                     <button className="px-5 py-2 bg-[#2a3040] group-hover:bg-blue-600 text-blue-400 group-hover:text-white font-bold rounded-xl text-sm transition-colors">
                       Xem
                     </button>

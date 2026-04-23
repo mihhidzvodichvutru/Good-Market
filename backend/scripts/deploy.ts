@@ -36,7 +36,7 @@ async function main() {
 
 // Hàm phụ trợ tự động lấy ABI và Địa chỉ xuất ra file
 function saveFrontendFiles(nftAddress: string, marketplaceAddress: string) {
-  const contractsDir = path.join(__dirname, "..", "frontend-exports");
+  const contractsDir = path.join(__dirname, "..", "..", "frontend", "contracts");
 
   // Tạo thư mục nếu chưa có
   if (!fs.existsSync(contractsDir)) {

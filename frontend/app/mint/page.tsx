@@ -6,19 +6,24 @@ import { supabase } from "../../lib/supabase";
 import { useRouter } from "next/navigation"; 
 import toast from 'react-hot-toast';
 
+// 1. NHẬP HÀM GỌI SMART CONTRACT TỪ WEB3
+import { createMarketItem } from "../../lib/web3"; 
+
+// 2. ĐỊNH NGHĨA KHUÔN MẪU ĐỂ CHỮA BỆNH "ANY" CỦA METAMASK
+interface WindowEthereum {
+  request: (args: { method: string }) => Promise<string[]>;
+}
+
 export default function MintNFT() {
   const router = useRouter();
   
-  // --- STATE CHO FILE CHÍNH ---
   const [file, setFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [mediaType, setMediaType] = useState<"image" | "video" | "audio">("image");
   
-  // --- STATE CHO ẢNH BÌA (COVER IMAGE) ---
   const [coverFile, setCoverFile] = useState<File | null>(null);
   const [coverPreviewUrl, setCoverPreviewUrl] = useState<string | null>(null);
 
-  // --- STATE THÔNG TIN ---
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [price, setPrice] = useState("");
@@ -30,9 +35,6 @@ export default function MintNFT() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const coverInputRef = useRef<HTMLInputElement>(null);
 
-  // ==========================================
-  // LOGIC XỬ LÝ FILE CHÍNH
-  // ==========================================
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) handleSetFile(e.target.files[0]);
   };
@@ -48,7 +50,6 @@ export default function MintNFT() {
     
     if (fileType.startsWith("image/")) {
       setMediaType("image");
-      // Nếu đổi lại thành ảnh, ta xóa dữ liệu ảnh bìa (vì ảnh thường không cần bìa)
       removeCover(); 
     } else if (fileType.startsWith("video/")) {
       setMediaType("video");
@@ -62,7 +63,6 @@ export default function MintNFT() {
     setFile(selectedFile);
     setPreviewUrl(URL.createObjectURL(selectedFile));
 
-    // Tính năng "Độ lười" - Tự động điền tên
     const nameWithoutExtension = selectedFile.name.replace(/\.[^/.]+$/, ""); 
     if (!name) setName(nameWithoutExtension);
   };
@@ -75,9 +75,6 @@ export default function MintNFT() {
     if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
-  // ==========================================
-  // LOGIC XỬ LÝ ẢNH BÌA (COVER)
-  // ==========================================
   const handleCoverChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) handleSetCover(e.target.files[0]);
   };
@@ -103,9 +100,6 @@ export default function MintNFT() {
     if (coverInputRef.current) coverInputRef.current.value = "";
   };
 
-  // ==========================================
-  // LOGIC GỬI LÊN DATABASE (HỖ TRỢ CHUẨN OPENSEA METADATA)
-  // ==========================================
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
@@ -114,16 +108,19 @@ export default function MintNFT() {
       return;
     }
 
-    // Ràng buộc cứng: Video và Nhạc BẮT BUỘC phải có ảnh bìa
     if ((mediaType === "audio" || mediaType === "video") && !coverFile) {
       toast.error("🎧 Mảng Video/Âm thanh bắt buộc phải có Ảnh bìa (Thumbnail)!");
       return;
     }
 
-    if (typeof window !== "undefined" && (window as any).ethereum) {
+    // ĐÃ SỬA: Loại bỏ lỗi 'any' bằng cách ép kiểu chuẩn (Dòng 124 cũ)
+    const ethWindow = window as unknown as { ethereum?: WindowEthereum };
+
+    // ĐÃ SỬA: Thay thế window.ethereum bằng ethWindow.ethereum (Dòng 127 cũ)
+    if (typeof window !== "undefined" && ethWindow.ethereum) {
       const toastId = toast.loading("⏳ Đang khởi tạo và đẩy dữ liệu lên IPFS...");
       try {
-        const accounts = await (window as any).ethereum.request({ method: 'eth_accounts' });
+        const accounts = await ethWindow.ethereum.request({ method: 'eth_accounts' });
         if (accounts.length === 0) {
           toast.error("🦊 Vui lòng kết nối ví MetaMask!");
           return;
@@ -131,46 +128,44 @@ export default function MintNFT() {
 
         setIsMinting(true);
 
-        // 1. Đóng gói dữ liệu gửi đi (Gửi 1 hoặc 2 file tùy loại)
         const formData = new FormData();
-        formData.append("file", file); // File chính
+        formData.append("file", file); 
         formData.append("name", name);
         formData.append("description", description);
         
-        // Gắn thêm ảnh bìa vào form nếu có
         if (coverFile) {
-          formData.append("cover", coverFile); // <--- Đổi thành "cover" theo đúng lời dặn
+          formData.append("cover", coverFile);
         }
 
-        // 2. Bắn sang API IPFS
         const uploadResponse = await fetch('/api/upload', {
           method: 'POST',
           body: formData,
         });
 
         if (!uploadResponse.ok) {
-          throw new Error("Lỗi khi tải file lên mạng IPFS Pinata!");
+          const errorDetails = await uploadResponse.text();
+          console.error("Chi tiết lỗi từ API/Pinata:", errorDetails);
+          throw new Error(`Upload IPFS thất bại: ${errorDetails}`);
         }
 
         const uploadData = await uploadResponse.json();
-        
-        // --- BẮT ĐẦU BÓC HÀNH TÂY (Chuẩn OpenSea) ---
         const metadataIpfsUrl = uploadData.ipfsUrl; 
         
-        // Bước B: Dùng cổng VIP để fetch cái file JSON đó về đọc thử (SỬA Ở ĐÂY)
+        // --- 🚀 BƯỚC QUAN TRỌNG NHẤT: ĐÚC NFT LÊN BLOCKCHAIN ---
+        toast.loading("💎 Đang khắc tác phẩm lên Blockchain...", { id: toastId });
+        await createMarketItem(metadataIpfsUrl, price);
+        // ------------------------------------------------------
+
         const gateway = process.env.NEXT_PUBLIC_PINATA_GATEWAY || "https://gateway.pinata.cloud";
         const gatewayUrl = metadataIpfsUrl.replace("ipfs://", `${gateway}/ipfs/`);
         
         const metadataResponse = await fetch(gatewayUrl);
         const metadataJson = await metadataResponse.json();
 
-        // Đọc dữ liệu từ file JSON mới của ông bạn IPFS:
-        const realCoverLink = metadataJson.image; // Luôn lấy ảnh bìa
-        // Nếu là Nhạc/Video thì lấy animation_url, nếu là Ảnh thì xài luôn link ảnh
+        const realCoverLink = metadataJson.image; 
         const realMediaLink = metadataJson.animation_url || metadataJson.image; 
-        // ---------------------------
 
-        // 3. GHI DỮ LIỆU THẬT VÀO SUPABASE 
+        toast.loading("💾 Đang đồng bộ lên giao diện chợ...", { id: toastId });
         const { error: dbError } = await supabase
           .from('nfts')
           .insert([
@@ -179,8 +174,8 @@ export default function MintNFT() {
               description: description,
               price: parseFloat(price),
               owner: accounts[0],
-              image: realMediaLink,      // Cột này để trình duyệt web phát Nhạc/Video/Ảnh
-              cover_image: realCoverLink, // Cột này lưu dự phòng Ảnh Bìa để sau trang trí UI
+              image: realMediaLink,      
+              cover_image: realCoverLink, 
               media_type: mediaType,
               is_trending: false
             }
@@ -188,28 +183,26 @@ export default function MintNFT() {
 
         if (dbError) throw dbError;
 
-        // Nâng cấp Toast Thành công thành Bảng điều hướng 2 lựa chọn
         toast.custom((t) => (
           <div className={`${t.visible ? 'animate-enter' : 'animate-leave'} max-w-md w-full bg-gray-800 shadow-2xl rounded-2xl border border-green-500/30 pointer-events-auto flex flex-col overflow-hidden`}>
-            
-            {/* Khu vực Lời chúc */}
             <div className="p-5 flex items-start gap-4 bg-gradient-to-b from-green-500/10 to-transparent">
               <div className="text-4xl animate-bounce">🎉</div>
               <div>
                 <h3 className="text-lg font-bold text-green-400 mb-1">
                   Đúc siêu phẩm thành công!
                 </h3>
+                {/* ĐÃ SỬA: Lỗi dấu ngoặc kép (unescaped entities) ở dòng 204 cũ */}
                 <p className="text-sm text-gray-300 leading-relaxed">
-                  Tác phẩm <span className="font-bold text-green-400">"{name}"</span> của bạn đã được ghi nhận lên IPFS. Bạn muốn làm gì tiếp theo?</p>
+                  Tác phẩm <span className="font-bold text-green-400">&quot;{name}&quot;</span> đã chính thức có mặt trên Blockchain!
+                </p>
               </div>
             </div>
             
-            {/* Khu vực Nút bấm (Chia đôi) */}
             <div className="flex border-t border-gray-700 bg-gray-900/80">
               <button
                 onClick={() => {
                   toast.dismiss(t.id); 
-                  window.location.href = '/explore'; // Chuyển sang trang Khám phá
+                  window.location.href = '/explore'; 
                 }}
                 className="w-full border-r border-gray-700 p-4 text-sm font-bold text-blue-400 hover:bg-blue-500 hover:text-white transition-all flex justify-center items-center gap-2"
               >
@@ -217,10 +210,7 @@ export default function MintNFT() {
               </button>
               <button
                 onClick={() => {
-                  toast.dismiss(t.id); // Tắt Toast để người dùng ở lại trang
-                  
-                  // (Tùy chọn): Bạn có thể gọi các hàm reset state ở đây để xóa form cũ
-                  // Ví dụ: setFile(null); setName(""); setPrice("");
+                  toast.dismiss(t.id); 
                 }}
                 className="w-full p-4 text-sm font-bold text-gray-400 hover:bg-gray-700 hover:text-white transition-all flex justify-center items-center gap-2"
               >
@@ -228,11 +218,12 @@ export default function MintNFT() {
               </button>
             </div>
           </div>
-        ), { id: toastId, duration: Infinity }); // Dùng chung ID với toast.loading để nó ghi đè lên, và giữ nó không tự tắt
+        ), { id: toastId, duration: Infinity });
         
-      } catch (error: any) {
-        console.error("Lỗi:", error);
-        toast.error("Có lỗi: " + error.message);
+      } catch (error: unknown) { // ĐÃ SỬA: Thay 'any' bằng 'unknown' (Dòng 234 cũ)
+        const errorMessage = error instanceof Error ? error.message : "Đã xảy ra lỗi không xác định";
+        console.error("Lỗi:", errorMessage);
+        toast.error("Có lỗi: " + errorMessage, { id: toastId });
       } finally {
         setIsMinting(false);
       }
@@ -267,17 +258,15 @@ export default function MintNFT() {
       <div className="max-w-5xl mx-auto">
         <div className="mb-10">
           <h1 className="text-4xl md:text-5xl font-black mb-4 flex items-center gap-3">
-  <Sparkles className="text-blue-500" size={40} /> Đúc Tác Phẩm Mới
-</h1>
+            <Sparkles className="text-blue-500" size={40} /> Đúc Tác Phẩm Mới
+          </h1>
           <p className="text-gray-400 text-lg">Hỗ trợ Ảnh, Video và Âm thanh. Kích thước tối đa 25MB.</p>
         </div>
 
         <form onSubmit={handleSubmit} className="grid grid-cols-1 lg:grid-cols-2 gap-12">
           
-          {/* CỘT TRÁI: Khu vực tải file */}
           <div className="flex flex-col gap-6">
             
-            {/* FILE GỐC (Original Media) */}
             <div>
               <h2 className="text-xl font-bold mb-4 flex items-center gap-2">
                 <UploadCloud className="text-blue-400" /> Tệp gốc (Media) <span className="text-red-500">*</span>
@@ -305,7 +294,6 @@ export default function MintNFT() {
               </div>
             </div>
 
-            {/* ẢNH BÌA ALBUM (Chỉ hiện khi file gốc là Nhạc hoặc Video) */}
             {(mediaType === "audio" || mediaType === "video") && (
               <div className="animate-in fade-in slide-in-from-top-4 duration-500">
                 <h2 className="text-lg font-bold mb-3 flex items-center gap-2 text-gray-300">
@@ -340,7 +328,6 @@ export default function MintNFT() {
             )}
           </div>
 
-          {/* CỘT PHẢI: Form thông tin */}
           <div className="flex flex-col space-y-8">
             <div>
               <label className="block text-sm font-bold text-gray-300 mb-2">Tên tác phẩm <span className="text-red-500">*</span></label>
@@ -356,7 +343,6 @@ export default function MintNFT() {
                 className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-3 text-white focus:border-blue-500 outline-none resize-none" 
               />
             </div>
-            {/* --------------------------------- */}
 
             <div>
               <label className="block text-sm font-bold text-gray-300 mb-2">Giá niêm yết (ETH) <span className="text-red-500">*</span></label>

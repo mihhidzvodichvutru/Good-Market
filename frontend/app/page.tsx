@@ -9,7 +9,7 @@ export default function Home() {
       {/* HEADER: Chứa Logo và Nút Kết nối ví ở góc phải */}
       <header className="absolute top-0 w-full flex items-center justify-between px-8 py-6 z-50">
         <div className="text-2xl font-black tracking-tighter">
-          BODOI<span className="text-transparent bg-clip-text bg-linear-to-r from-blue-400 to-purple-500">.NFT</span>
+          BODOI<span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-purple-500">.NFT</span>
         </div>
         
         <ConnectWallet />
@@ -21,7 +21,7 @@ export default function Home() {
 
         <h1 className="text-5xl md:text-7xl font-extrabold mb-6 leading-tight">
           Khám phá & Sưu tầm <br/>
-          <span className="text-transparent bg-clip-text bg-linear-to-r from-blue-400 via-purple-500 to-pink-500">
+          <span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-400 via-purple-500 to-pink-500">
             Nghệ Thuật Số Độc Bản
           </span>
         </h1>
@@ -54,16 +54,40 @@ export default function Home() {
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+            
+            {/* Card 1: Lưu trữ IPFS */}
             <div className="p-8 rounded-2xl bg-gray-900 border border-gray-800 hover:border-blue-500/50 transition-colors group">
               <div className="w-14 h-14 rounded-xl bg-blue-500/10 flex items-center justify-center mb-6 group-hover:scale-110 transition-transform">
                 <Database className="text-blue-400" size={28} />
               </div>
               <h3 className="text-xl font-bold mb-3 text-white">Lưu trữ vĩnh cửu (IPFS)</h3>
               <p className="text-gray-400 leading-relaxed">
-                Tác phẩm và siêu dữ liệu (Metadata) được phân mảnh và lưu trữ an toàn trên mạng lưới IPFS. Không một ai, kể cả chúng tôi, có thể xóa hay sửa đổi tác phẩm của bạn.
+                Tác phẩm và siêu dữ liệu (Metadata) được phân mảnh và lưu trữ an toàn trên mạng lưới IPFS. Không một ai có thể xóa hay sửa đổi tác phẩm của bạn.
               </p>
             </div>
-            {/* Các tính năng khác đệ rút gọn ở đây cho đỡ dài, đại ca cứ copy full bộ đệ gửi lúc nãy nhé */}
+
+            {/* Card 2: Giao dịch nhanh */}
+            <div className="p-8 rounded-2xl bg-gray-900 border border-gray-800 hover:border-purple-500/50 transition-colors group">
+              <div className="w-14 h-14 rounded-xl bg-purple-500/10 flex items-center justify-center mb-6 group-hover:scale-110 transition-transform">
+                <Zap className="text-purple-400" size={28} />
+              </div>
+              <h3 className="text-xl font-bold mb-3 text-white">Tối ưu phí Gas</h3>
+              <p className="text-gray-400 leading-relaxed">
+                Smart Contract được tối ưu hóa kiến trúc giúp giảm thiểu tối đa phí giao dịch cho người dùng, mang lại trải nghiệm mua bán mượt mà và tiết kiệm.
+              </p>
+            </div>
+
+            {/* Card 3: Bảo mật an toàn */}
+            <div className="p-8 rounded-2xl bg-gray-900 border border-gray-800 hover:border-pink-500/50 transition-colors group">
+              <div className="w-14 h-14 rounded-xl bg-pink-500/10 flex items-center justify-center mb-6 group-hover:scale-110 transition-transform">
+                <ShieldCheck className="text-pink-400" size={28} />
+              </div>
+              <h3 className="text-xl font-bold mb-3 text-white">Bảo mật tuyệt đối</h3>
+              <p className="text-gray-400 leading-relaxed">
+                Mọi giao dịch đều được thực thi tự động qua Smart Contract minh bạch, loại bỏ hoàn toàn rủi ro gian lận từ bên thứ ba.
+              </p>
+            </div>
+
           </div>
         </div>
       </section>

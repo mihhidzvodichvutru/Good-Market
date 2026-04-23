@@ -3,38 +3,39 @@
 import { useState, useEffect, use, useRef } from "react";
 import Link from "next/link";
 import { supabase } from "../../../lib/supabase";
-import { UserCircle, Tag, Clock, Package, ArrowLeft, Loader2, DollarSign, History, Music, Play, Pause, Volume2, Video as VideoIcon, Camera } from "lucide-react";
+import { buyMarketItem } from "../../../lib/web3"; 
+import { 
+  UserCircle, Tag, Clock, Package, ArrowLeft, Loader2, 
+  DollarSign, History, Music, Play, Pause, Volume2 
+} from "lucide-react";
 import toast from 'react-hot-toast';
 import { useRouter } from "next/navigation";
 
-// 1. Cập nhật Model dữ liệu (Thêm coverImage)
-interface NFT {
+// --- ĐỊNH NGHĨA KHUÔN MẪU DỮ LIỆU ĐỂ TRỊ LỖI ANY ---
+interface NFTItem {
   id: number;
   name: string;
   description: string;
-  price: number;
+  price: string | number;
   owner: string;
-  creator: string; 
-  creatorName?: string; 
-  image: string; // Media gốc (mp3, mp4, ảnh)
-  coverImage?: string; // Ảnh bìa album/thumbnail
-  mediaType: "image" | "video" | "audio";
-  isTrending: boolean;
-  createdAt: string; 
+  creator: string;
+  creatorName: string;
+  image: string;
+  cover_image?: string;
+  media_type: "image" | "video" | "audio";
 }
 
-// BƯỚC 1: HÀM GIẢI MÃ LINK IPFS (ĐÃ NÂNG CẤP LÊN CỔNG VIP)
-  const resolveIpfsUrl = (url: string | undefined) => {
-    if (!url) return "";
-    if (url.startsWith("ipfs://")) {
-      // Gọi cổng VIP từ biến môi trường. Nếu quên chưa cài thì nó xài tạm cổng Public chống cháy
-      const gateway = process.env.NEXT_PUBLIC_PINATA_GATEWAY || "https://gateway.pinata.cloud";
-      return url.replace("ipfs://", `${gateway}/ipfs/`);
-    }
-    return url; 
-  };
+// --- GIẢI MÃ LINK IPFS ---
+const resolveIpfsUrl = (url: string | undefined) => {
+  if (!url) return "";
+  if (url.startsWith("ipfs://")) {
+    const gateway = process.env.NEXT_PUBLIC_PINATA_GATEWAY || "https://gateway.pinata.cloud";
+    return url.replace("ipfs://", `${gateway}/ipfs/`);
+  }
+  return url; 
+};
 
-// 2. Component Trình phát nhạc custom - GIỐNG SPOTIFY
+// --- TRÌNH PHÁT NHẠC CUSTOM ---
 function AudioPlayer({ src }: { src: string }) {
   const audioRef = useRef<HTMLAudioElement>(null);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -44,123 +45,57 @@ function AudioPlayer({ src }: { src: string }) {
   useEffect(() => {
     const audio = audioRef.current;
     if (!audio) return;
-
-    // Lấy tổng thời gian khi file load xong
     audio.onloadedmetadata = () => setDuration(audio.duration);
-    // Cập nhật thời gian đang phát
     audio.ontimeupdate = () => setCurrentTime(audio.currentTime);
-    // Xử lý khi nhạc hết
-    audio.onended = () => {
-      setIsPlaying(false);
-      setCurrentTime(0);
-    };
-
-    return () => {
-      audio.pause();
-    };
+    audio.onended = () => { setIsPlaying(false); setCurrentTime(0); };
+    return () => audio.pause();
   }, [src]);
 
   const togglePlay = () => {
     const audio = audioRef.current;
     if (!audio) return;
-
-    if (isPlaying) {
-      audio.pause();
-      setIsPlaying(false); // Cập nhật state NGAY khi pause
-    } else {
-      // Ép trình duyệt đợi hàm play() chạy xong rồi mới cập nhật state
-      const playPromise = audio.play();
-      if (playPromise !== undefined) {
-        playPromise.then(() => {
-          setIsPlaying(true);
-        }).catch(error => {
-          console.error("Lỗi phát nhạc:", error.message);
-          setIsPlaying(false); // Reset lại nút bấm nếu lỗi
-        });
-      }
-    }
-  };
-
-  const handleSeek = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const audio = audioRef.current;
-    if (!audio) return;
-    const time = parseFloat(e.target.value);
-    audio.currentTime = time;
-    setCurrentTime(time);
-  };
-
-  const formatTime = (time: number) => {
-    const minutes = Math.floor(time / 60);
-    const seconds = Math.floor(time % 60);
-    return `${minutes}:${seconds < 10 ? '0' : ''}${seconds}`;
+    if (isPlaying) { audio.pause(); setIsPlaying(false); } 
+    else { audio.play().then(() => setIsPlaying(true)).catch(() => setIsPlaying(false)); }
   };
 
   return (
     <div className="bg-gray-800 p-6 rounded-3xl border border-gray-700 flex flex-col gap-4 shadow-xl">
       <audio ref={audioRef} src={src} />
-      
-      {/* Thông tin bài nhạc */}
       <div className="flex items-center gap-3">
-        <div className="w-12 h-12 bg-green-500/20 rounded-xl flex items-center justify-center border border-green-500/30 animate-spin-slow">
-            <Music className="text-green-400" size={24} />
+        <div className="w-12 h-12 bg-green-500/20 rounded-xl flex items-center justify-center border border-green-500/30">
+          <Music className="text-green-400" size={24} />
         </div>
         <div>
           <p className="text-sm font-bold text-gray-200">Đang phát tác phẩm âm nhạc</p>
           <p className="text-xs text-gray-400">Chất lượng cao trên IPFS</p>
         </div>
       </div>
-
-      {/* Điều khiển */}
       <div className="flex items-center gap-4">
-        <button 
-          onClick={togglePlay}
-          className="w-12 h-12 rounded-full bg-blue-600 hover:bg-blue-500 flex items-center justify-center shadow-lg transform hover:scale-110 transition-all"
-        >
+        <button onClick={togglePlay} className="w-12 h-12 rounded-full bg-blue-600 hover:bg-blue-500 flex items-center justify-center transition-all">
           {isPlaying ? <Pause className="fill-white text-white" size={24}/> : <Play className="fill-white text-white" size={24}/>}
         </button>
-        
-        <div className="flex-grow flex items-center gap-3">
-          <span className="text-xs text-gray-500 w-10 text-right">{formatTime(currentTime)}</span>
-          {/* Progress bar custom xịn xò */}
-          <input 
-            type="range" 
-            min="0" 
-            max={duration.toString()} 
-            value={currentTime.toString()} 
-            onChange={handleSeek} 
-            className="flex-grow h-1.5 bg-gray-600 rounded-full appearance-none cursor-pointer accent-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-          />
-          <span className="text-xs text-gray-500 w-10">{formatTime(duration)}</span>
-        </div>
-
-        <button className="text-gray-400 hover:text-white transition-colors"> <Volume2 size={18}/> </button>
+        <input type="range" min="0" max={duration} value={currentTime} onChange={(e) => {if(audioRef.current) audioRef.current.currentTime = Number(e.target.value)}} className="flex-grow h-1.5 bg-gray-600 rounded-full appearance-none cursor-pointer accent-blue-500" />
       </div>
     </div>
   );
 }
 
-// Component chính
+// --- COMPONENT CHÍNH ---
 export default function NFTDetails({ params }: { params: Promise<{ id: string }> }) {
   const resolvedParams = use(params);
   const id = resolvedParams.id;
   const router = useRouter();
 
-  const [nft, setNft] = useState<NFT | null>(null);
+  const [nft, setNft] = useState<NFTItem | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  
+  const [isBuying, setIsBuying] = useState(false);
   const [currentAccount, setCurrentAccount] = useState<string | null>(null);
 
   useEffect(() => {
     const checkWallet = async () => {
-      if (typeof window !== "undefined" && (window as any).ethereum) {
-        try {
-          const accounts = await (window as any).ethereum.request({ method: 'eth_accounts' });
-          if (accounts.length > 0) {
-            setCurrentAccount(accounts[0]);
-          }
-        } catch (err) {
-          console.error("Lỗi lấy thông tin ví:", err);
-        }
+      if (typeof window !== "undefined" && window.ethereum) {
+        const accounts = await window.ethereum.request({ method: 'eth_accounts' });
+        if (accounts.length > 0) setCurrentAccount(accounts[0]);
       }
     };
     checkWallet();
@@ -170,312 +105,116 @@ export default function NFTDetails({ params }: { params: Promise<{ id: string }>
     const fetchNFTDetails = async () => {
       setIsLoading(true);
       try {
-        // Lần hỏi 1: Lấy thông tin NFT
-        const { data: nftData, error: nftError } = await supabase
-          .from('nfts')
-          .select('*')
-          .eq('id', id)
-          .single();
-
-        if (nftError) {
-          console.error("Lỗi khi tải chi tiết NFT:", nftError.message);
-          return;
-        }
-
+        const { data: nftData } = await supabase.from('nfts').select('*').eq('id', id).single();
         if (nftData) {
           const creatorAddress = nftData.creator || nftData.owner;
-          let fetchedCreatorName = "Nghệ sĩ Ẩn danh"; // Tên mặc định
-
-          // Lần hỏi 2: Cầm cái ví creator sang bảng users hỏi tên
-          if (creatorAddress) {
-            const { data: userData } = await supabase
-              .from('users')
-              .select('username')
-              .ilike('wallet_address', creatorAddress) // Dùng ilike để không phân biệt chữ hoa/thường
-              .single();
-            
-            if (userData && userData.username) {
-              fetchedCreatorName = userData.username;
-            }
-          }
-
-          const formattedNft: NFT = {
-            id: nftData.id,
-            name: nftData.name,
-            description: nftData.description,
-            price: parseFloat(nftData.price),
-            owner: nftData.owner,
-            creator: creatorAddress,
-            creatorName: fetchedCreatorName, // Nhét cái tên vừa lấy được vào đây
-            image: nftData.image,
-            coverImage: nftData.cover_image,
-            mediaType: nftData.media_type || "image", 
-            isTrending: nftData.is_trending,
-            createdAt: nftData.created_at,
-          };
-          setNft(formattedNft);
+          const { data: userData } = await supabase.from('users').select('username').ilike('wallet_address', creatorAddress).single();
+          setNft({ ...nftData, creatorName: userData?.username || "Nghệ sĩ Ẩn danh" });
         }
-      } catch (err) {
-        console.error("Lỗi không xác định:", err);
-      } finally {
-        setIsLoading(false);
-      }
+      } catch (err) { console.error(err); } finally { setIsLoading(false); }
     };
-
     fetchNFTDetails();
   }, [id]);
 
-  // 1. Hàm thực thi việc Xóa (Chỉ chạy khi người dùng bấm "Đồng ý" trên Toast)
-  const executeDelete = async () => {
+  const handleBuyNFT = async () => {
     if (!nft) return;
-    const loadingToast = toast.loading("⏳ Đang dọn dẹp dữ liệu trên IPFS và Database...");
+    
+    // Đảm bảo phải có ví người mua mới cho chốt đơn
+    if (!currentAccount) {
+      toast.error("Vui lòng kết nối ví MetaMask trước khi mua!");
+      return;
+    }
 
+    setIsBuying(true);
+    const loadingToast = toast.loading("⏳ Đang gọi MetaMask để chốt đơn...");
     try {
-      const cidsToDelete = [nft.image]; 
-      if (nft.coverImage) cidsToDelete.push(nft.coverImage); 
+      // 1. Chốt đơn trên Blockchain
+      await buyMarketItem(nft.id);
 
-      await fetch('/api/delete', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ cids: cidsToDelete })
-      });
-
-      const { error: dbError } = await supabase
+      // 2. 🚀 CẬP NHẬT CHỦ SỞ HỮU MỚI TRÊN SUPABASE (ĐÂY LÀ ĐOẠN ĐÃ ĐƯỢC ĐỆ THÊM VÀO)
+      const { error: updateError } = await supabase
         .from('nfts')
-        .delete()
+        .update({ 
+          owner: currentAccount, // Đổi tên sổ đỏ sang ví của đại ca
+          sold: true             // Đánh dấu đã bán
+        })
         .eq('id', nft.id);
 
-      if (dbError) throw dbError;
+      if (updateError) {
+        console.error("Lỗi cập nhật chủ sở hữu trên Supabase:", updateError.message);
+        toast.success("Mua thành công nhưng lỗi hiển thị!", { id: loadingToast });
+      } else {
+        toast.success("🎉 Chốt đơn thành công! Tác phẩm đã về tay đại ca!", { id: loadingToast });
+      }
 
-      toast.success("🗑️ Đã xóa sạch bong kin kít!", { id: loadingToast });
-      
-      // Đợi 1.5 giây cho người dùng nhìn thấy thông báo rồi mới đẩy về trang chủ
-      setTimeout(() => {
-        window.location.href = '/explore';
-      }, 1500);
+      // Đẩy thẳng về trang Profile sau 2 giây để khoe chiến tích
+      setTimeout(() => router.push('/profile'), 2000);
 
-    } catch (error: any) {
-      console.error("Lỗi khi xóa:", error);
-      toast.error("Lỗi khi xóa: " + error.message, { id: loadingToast });
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : "Giao dịch bị hủy hoặc xảy ra lỗi";
+      toast.error("Thất bại: " + errorMessage, { id: loadingToast });
+    } finally { 
+      setIsBuying(false); 
     }
   };
 
-  // 2. Hàm kích hoạt Pop-up hỏi xác nhận (Thay thế cho window.confirm)
-  const handleDeleteNFT = () => {
-    toast.custom((t) => (
-      <div className={`${t.visible ? 'animate-enter' : 'animate-leave'} max-w-md w-full bg-gray-800 shadow-2xl rounded-2xl border border-gray-700 pointer-events-auto flex flex-col overflow-hidden`}>
-        {/* Tiêu đề & Nội dung */}
-        <div className="p-5">
-          <h3 className="text-xl font-extrabold text-white mb-2 flex items-center gap-2">
-            🚨 Xác nhận thu hồi?
-          </h3>
-          <p className="text-sm text-gray-400">
-            Hành động này sẽ xóa dữ liệu trên Database và Unpin toàn bộ file gốc trên IPFS. <b className="text-red-400">Không thể hoàn tác!</b>
-          </p>
-        </div>
-        
-        {/* Khu vực Nút bấm */}
-        <div className="flex border-t border-gray-700 bg-gray-900/50">
-          <button
-            onClick={() => {
-              toast.dismiss(t.id); // Đóng pop-up
-              executeDelete();     // Gọi hàm xóa ở trên
-            }}
-            className="w-full border-r border-gray-700 p-4 text-sm font-bold text-red-500 hover:bg-red-500 hover:text-white transition-colors"
-          >
-            Chắc chắn Xóa
-          </button>
-          <button
-            onClick={() => toast.dismiss(t.id)} // Chỉ đóng pop-up, không làm gì cả
-            className="w-full p-4 text-sm font-bold text-gray-300 hover:bg-gray-700 transition-colors"
-          >
-            Hủy bỏ
-          </button>
-        </div>
-      </div>
-    ), { duration: Infinity }); // Đặt Infinity để pop-up không tự tắt, bắt người dùng phải bấm nút
-  };
-
-  const formatAddress = (addr: string) => {
-    return `${addr.slice(0, 6)}...${addr.slice(-4)}`;
-  };
-
-  if (isLoading) {
-    return (
-      <div className="min-h-screen bg-gray-900 text-white flex flex-col items-center justify-center gap-4">
-        <Loader2 className="h-12 w-12 text-blue-500 animate-spin" />
-        <p className="text-gray-400 text-lg">Đang tải siêu phẩm...</p>
-      </div>
-    );
-  }
-
-  if (!nft) {
-    return (
-      <div className="min-h-screen bg-gray-900 text-white flex flex-col items-center justify-center gap-6 p-4 text-center">
-        <Package className="h-20 w-20 text-gray-700" />
-        <h1 className="text-3xl font-bold text-gray-300">Ối! Tác phẩm không tồn tại</h1>
-        <button 
-          onClick={() => router.back()} 
-          className="inline-flex items-center gap-2 text-gray-400 hover:text-white mb-8 transition-colors group cursor-pointer"
-        >
-          <ArrowLeft size={20} className="group-hover:-translate-x-1 transition-transform" />  Quay lại
-        </button>
-      </div>
-    );
-  }
+  if (isLoading) return <div className="min-h-screen bg-gray-900 flex items-center justify-center text-white"><Loader2 className="animate-spin mr-2" /> Đang tải...</div>;
+  if (!nft) return <div className="text-white text-center py-20">Không tìm thấy tác phẩm!</div>;
 
   return (
     <div className="min-h-screen bg-gray-900 text-white py-8 px-4 md:px-8">
       <div className="max-w-7xl mx-auto">
-        <button 
-          onClick={() => router.back()} 
-          className="inline-flex items-center gap-2 text-gray-400 hover:text-white mb-8 transition-colors group cursor-pointer"
-        >
-          <ArrowLeft size={20} className="group-hover:-translate-x-1 transition-transform" />  Quay lại
+        <button onClick={() => router.back()} className="inline-flex items-center gap-2 text-gray-400 hover:text-white mb-8 transition-colors">
+          <ArrowLeft size={20} /> Quay lại
         </button>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-12">
-          
-          {/* --- CỘT TRÁI: HIỂN THỊ ĐA PHƯƠNG TIỆN BỰ CHÀ BÁ --- */}
-          <div className="relative aspect-square rounded-3xl bg-gray-800 border border-gray-700 overflow-hidden shadow-[0_20px_50px_rgba(0,0,0,0.5)] flex items-center justify-center">
-            
-            {/* TRƯỜNG HỢP 1: LÀ HÌNH ẢNH (Up 1 file ảnh gốc) */}
-            {nft.mediaType === "image" && (
-              <img src={resolveIpfsUrl(nft.image)} alt={nft.name} className="w-full h-full object-cover" />
-            )}
-
-            {/* TRƯỜNG HỢP 2: LÀ VIDEO (Up 2 file: cover chui vào `poster`, mp4 chui vào `src`) */}
-            {nft.mediaType === "video" && (
-              <video 
-                src={resolveIpfsUrl(nft.image)} 
-                // controls 
-                autoPlay 
-                muted // Cần muted để autoplay trơn tru trên trình duyệt
-                loop 
-                playsInline // Quan trọng cho iOS
-                className="w-full h-full object-contain bg-black" 
-                poster={resolveIpfsUrl(nft.coverImage)} // 3. Nâng cấp Video: Gắn ảnh bìa làm thumbnail (poster)
-              />
-            )}
-
-            {/* TRƯỜNG HỢP 3: LÀ ÂM THANH (Up 2 file: cover làm hình nền, mp3 để phát custom) */}
-            {nft.mediaType === "audio" && (
-              <div className="w-full h-full relative flex items-center justify-center bg-gray-900">
-                {/* 3. Nâng cấp Audio: Hiển thị Ảnh bìa nếu có */}
-                {nft.coverImage ? (
-                  <img src={resolveIpfsUrl(nft.coverImage)} alt={`${nft.name} Cover`} className="w-full h-full object-cover" />
-                ) : (
-                  // Giao diện mặc định nếu không có cover image
-                  <div className="w-full h-full flex flex-col items-center justify-center bg-gray-900 p-6 relative">
-                    <div className="w-48 h-48 bg-gradient-to-tr from-green-500 to-blue-500 rounded-full animate-spin-slow flex items-center justify-center border-2 border-green-500/50 shadow-lg">
-                        <div className="w-12 h-12 bg-gray-900 rounded-full"></div>
-                    </div>
-                    <Music className="text-green-400 absolute opacity-10" size={128} />
-                  </div>
-                )}
-                 
-                 {/* Tag phân loại đa phương tiện */}
-                 <div className="absolute top-6 left-6 bg-black/60 backdrop-blur-md px-4 py-2 rounded-2xl text-sm font-bold border border-white/10 flex items-center gap-1.5">
-                    <Music size={16} /> Âm thanh độc bản
-                 </div>
-              </div>
-            )}
-            
-            {/* Tag "Hot" */}
-            {nft.isTrending && (
-              <div className="absolute top-6 right-6 bg-blue-600/90 backdrop-blur-md px-4 py-2 rounded-2xl text-sm font-bold border border-white/10 flex items-center gap-1.5">
-                <Tag size={16} /> Đang Hot
+          {/* MEDIA HIỂN THỊ */}
+          <div className="relative aspect-square rounded-3xl bg-gray-800 border border-gray-700 overflow-hidden flex items-center justify-center shadow-2xl">
+            {nft.media_type === "image" && <img src={resolveIpfsUrl(nft.image)} className="w-full h-full object-cover" />}
+            {nft.media_type === "video" && <video src={resolveIpfsUrl(nft.image)} autoPlay muted loop playsInline className="w-full h-full object-contain bg-black" poster={resolveIpfsUrl(nft.cover_image)} />}
+            {nft.media_type === "audio" && (
+              <div className="w-full h-full flex items-center justify-center bg-gray-950">
+                {nft.cover_image ? <img src={resolveIpfsUrl(nft.cover_image)} className="w-full h-full object-cover opacity-50" /> : <Music size={100} className="text-blue-500/20" />}
               </div>
             )}
           </div>
 
-          {/* CỘT PHẢI: Thông tin */}
+          {/* THÔNG TIN CHI TIẾT */}
           <div className="flex flex-col space-y-8">
             <div>
-              <h1 className="text-4xl md:text-5xl font-extrabold tracking-tight mb-4 text-white">
-                {nft.name}
-              </h1>
-              <div className="mb-6 text-lg flex items-center gap-2">
-                <span className="text-gray-400 font-medium">Tạo bởi</span>
-                <Link 
-                  href={`/profile/${nft.creator}`} 
-                  className="font-bold text-blue-400 hover:text-blue-300 transition-colors"
-                >
-                  {nft.creatorName && nft.creatorName !== "Nghệ sĩ Ẩn danh" 
-                    ? nft.creatorName 
-                    : formatAddress(nft.creator)}
-                </Link>
-              </div>
-              <div className="flex flex-wrap gap-4 items-center p-4 bg-gray-800/50 rounded-2xl border border-gray-700">
-                <div className="flex items-center gap-3">
-                  <UserCircle className="h-10 w-10 text-gray-500" />
-                  <div>
-                    <p className="text-xs text-gray-500">Chủ sở hữu hiện tại</p>
-                    <p className="text-sm font-mono text-blue-400 font-medium">{formatAddress(nft.owner)}</p>
-                  </div>
-                </div>
-                <div className="h-8 w-px bg-gray-700 hidden md:block"></div>
-                <div className="text-sm text-gray-400">
-                  <Clock size={16} className="inline mr-1.5 text-gray-500" />
-                  Đúc lúc: {new Date(nft.createdAt).toLocaleDateString('vi-VN')}
-                </div>
+              <h1 className="text-4xl font-extrabold mb-4">{nft.name}</h1>
+              <p className="text-blue-400 font-bold mb-6">Tạo bởi {nft.creatorName}</p>
+              <div className="p-4 bg-gray-800/50 rounded-2xl border border-gray-700">
+                <p className="text-xs text-gray-500 uppercase">Chủ sở hữu</p>
+                <p className="text-sm font-mono text-blue-400">{nft.owner.slice(0, 6)}...{nft.owner.slice(-4)}</p>
               </div>
             </div>
 
-            {/* --- 4. KHU VỰC ĐẶC BIỆT CHO ÂM THANH: TRÌNH PHÁT CUSTOM GIỐNG SPOTIFY --- */}
-            {nft.mediaType === "audio" && (
-              <AudioPlayer src={resolveIpfsUrl(nft.image)} />
-            )}
+            {nft.media_type === "audio" && <AudioPlayer src={resolveIpfsUrl(nft.image)} />}
 
-            {/* Mô tả từ Database (whispace-pre-wrap để giữ format xuống dòng) */}
             <div className="bg-gray-800/30 p-6 rounded-2xl border border-gray-700">
-              <h3 className="text-lg font-bold mb-3 text-gray-200">Mô tả chi tiết</h3>
-              <p className="text-gray-400 leading-relaxed whitespace-pre-wrap">
-                {nft.description || "Tác giả chưa cung cấp mô tả cho tác phẩm này."}
-              </p>
+              <h3 className="text-lg font-bold mb-3">Mô tả</h3>
+              <p className="text-gray-400 whitespace-pre-wrap">{nft.description || "Chưa có mô tả."}</p>
             </div>
 
-            {/* Giá và Nút hành động */}
-            <div className="bg-gray-800 p-6 rounded-3xl border border-gray-700 shadow-xl">
-              <p className="text-sm text-gray-400 mb-2 font-medium">Giá hiện tại</p>
-              <div className="flex items-end gap-2 mb-6">
-                <span className="text-5xl font-extrabold text-white">♦ {nft.price.toFixed(3)}</span>
-                <span className="text-xl text-gray-400 font-bold mb-1">ETH</span>
-                <span className="text-lg text-green-400 font-medium mb-1 ml-2">(~$ {(nft.price * 3500).toLocaleString('en-US', {maximumFractionDigits: 0})})</span>
-              </div>
+            <div className="bg-gray-800 p-8 rounded-3xl border border-gray-700 shadow-xl">
+              <p className="text-sm text-gray-400 mb-2">Giá niêm yết</p>
+              {/* Note: Fix lỗi string không có toFixed bằng cách parse float/number */}
+              <div className="text-5xl font-extrabold mb-8">♦ {Number(nft.price).toFixed(3)} <span className="text-xl text-gray-500">ETH</span></div>
               
-              {/* --- ĐIỀU KIỆN HIỂN THỊ NÚT BẤM THEO PHÂN QUYỀN (GIỮ NGUYÊN) --- */}
               {currentAccount?.toLowerCase() === nft.owner.toLowerCase() ? (
-                // LÀ CHỦ SỞ HỮU -> Hiện Sửa / Xóa
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <button 
-                    onClick={() => toast.error("Sẽ chuyển sang trang Chỉnh sửa thông tin!")}
-                    className="w-full py-4 rounded-xl font-bold text-lg text-white bg-gray-700 hover:bg-gray-600 transition-colors"
-                  >
-                    ✏️ Chỉnh sửa tác phẩm
-                  </button>
-                  <button 
-                    onClick={handleDeleteNFT}
-                    className="w-full py-4 rounded-xl font-bold text-lg text-red-500 bg-red-500/10 hover:bg-red-500 hover:text-white transition-all border border-red-500/20 shadow-lg"
-                  >
-                    🗑️ Thu hồi & Xóa 
-                  </button>
-                </div>
+                <button className="w-full py-4 rounded-xl font-bold bg-gray-700 text-white cursor-not-allowed">Đây là tác phẩm của đại ca</button>
               ) : (
-                // KHÁCH XEM -> Hiện Mua / Đề nghị giá
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <button onClick={() => toast.error("Chức năng Mua sẽ được kích hoạt khi kết nối Smart Contract!")} className="flex items-center justify-center gap-3 w-full py-4 rounded-xl font-bold text-lg text-white bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 transform hover:-translate-y-1 transition-all shadow-[0_10px_20px_rgba(37,99,235,0.3)]">
-                    <DollarSign size={20} /> Mua ngay
-                  </button>
-                  <button className="w-full py-4 rounded-xl font-bold text-lg text-gray-300 bg-gray-700 hover:bg-gray-600 transition-colors">
-                    Đề nghị giá
-                  </button>
-                </div>
+                <button 
+                  onClick={handleBuyNFT}
+                  disabled={isBuying}
+                  className="flex items-center justify-center gap-3 w-full py-4 rounded-xl font-bold text-lg text-white bg-linear-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 transition-all disabled:opacity-50"
+                >
+                  <DollarSign size={20} /> {isBuying ? "Đang giao dịch..." : "Mua ngay"}
+                </button>
               )}
             </div>
-            
-            <div className="bg-gray-800/30 p-6 rounded-2xl border border-gray-700"> <h3 className="text-lg font-bold mb-4 text-gray-200 flex items-center gap-2"> <History size={18} className="text-blue-400" /> Lịch sử hoạt động </h3> <div className="space-y-3"> <div className="flex justify-between text-sm bg-gray-800 p-3 rounded-lg border border-gray-700"> <span className="text-green-400 font-medium">Minted (Đúc)</span> <span className="text-gray-400 font-mono">{formatAddress(nft.owner)}</span> <span className="text-gray-500">{new Date(nft.createdAt).toLocaleDateString('vi-VN')}</span> </div> </div> </div>
-
           </div>
         </div>
       </div>
