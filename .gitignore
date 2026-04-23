@@ -22,3 +22,4 @@
 .env.*
 # Bỏ qua toàn bộ thư mục thư viện
 node_modules/
+.DS_Store
