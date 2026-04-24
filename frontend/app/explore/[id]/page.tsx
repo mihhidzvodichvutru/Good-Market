@@ -1,5 +1,6 @@
 "use client";
 
+import { CONTRACT_ADDRESS, CONTRACT_ABI } from "../../../lib/contract";
 import { useState, useEffect, use, useRef } from "react";
 import Link from "next/link";
 import { supabase } from "../../../lib/supabase";
@@ -11,6 +12,7 @@ import { ethers } from "ethers";
 // 1. Cập nhật Model dữ liệu (Thêm coverImage)
 interface NFT {
   id: number;
+  token_id?: number | null;
   name: string;
   description: string;
   price: number;
@@ -156,6 +158,7 @@ export default function NFTDetails({ params }: { params: Promise<{ id: string }>
 
   const [nft, setNft] = useState<NFT | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [isBuying, setIsBuying] = useState(false);
   
   const [currentAccount, setCurrentAccount] = useState<string | null>(null);
 
@@ -222,6 +225,7 @@ export default function NFTDetails({ params }: { params: Promise<{ id: string }>
 
           const formattedNft: NFT = {
             id: nftData.id,
+            token_id: nftData.token_id,
             name: nftData.name,
             description: nftData.description,
             price: parseFloat(nftData.price),
@@ -338,6 +342,77 @@ useEffect(() => {
       else toast.error("Lỗi: " + error.message, { id: toastId });
     } finally {
       setIsLiking(false);
+    }
+  };
+
+  // --- HÀM XỬ LÝ MUA NFT ---
+  const handleBuyNFT = async () => {
+    if (!nft) return;
+    
+    if (!currentAccount) {
+      return toast.error("Vui lòng kết nối ví MetaMask trước khi mua!");
+    }
+
+    // Kiểm tra nháp off-chain (token_id bị NULL)
+    if (nft.token_id === null || nft.token_id === undefined) {
+      return toast.error("❌ Tác phẩm này chỉ là bản nháp off-chain (chưa có token_id)!");
+    }
+
+    if (currentAccount.toLowerCase() === (nft.owner || "").toLowerCase()) {
+      return toast.error("Đại ca không thể tự mua lại tác phẩm của chính mình!");
+    }
+
+    setIsBuying(true);
+    const loadingToast = toast.loading("🦊 Đang gọi MetaMask để chốt đơn...");
+    
+    try {
+      const provider = new ethers.BrowserProvider((window as any).ethereum);
+      const signer = await provider.getSigner();
+      // Nhớ đảm bảo CONTRACT_ADDRESS và CONTRACT_ABI đã được import ở đầu file nhé!
+      const contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI as any, signer);
+
+      const priceInWei = ethers.parseEther(nft.price.toString());
+
+      const transaction = await contract.buyNFT(nft.token_id, { 
+        value: priceInWei 
+      });
+
+      toast.loading("🔗 Đang chờ Blockchain xác nhận (khoảng 10s)...", { id: loadingToast });
+      await transaction.wait(); 
+
+      toast.loading("💾 Đang đồng bộ sổ đỏ lên hệ thống...", { id: loadingToast });
+
+      const { error: updateError } = await supabase
+        .from('nfts')
+        .update({ 
+          owner_address: currentAccount.toLowerCase(), 
+          price: 0, 
+          sold: true 
+        })
+        .eq('id', nft.id); 
+
+      if (updateError) throw updateError;
+
+      await supabase.from('activity_history').insert({
+        nft_id: nft.id,
+        action_type: 'SOLD',
+        from_wallet: nft.owner.toLowerCase(),
+        to_wallet: currentAccount.toLowerCase(),
+        price: nft.price
+      });
+      
+
+      toast.success("🎉 Chốt đơn thành công! Tác phẩm đã về tay!", { id: loadingToast });
+      setTimeout(() => router.push('/profile'), 2000);
+
+    } catch (error: any) {
+      console.error(error);
+      const errorMessage = error.code === 'ACTION_REJECTED' 
+        ? "Bạn đã từ chối giao dịch trên MetaMask" 
+        : error.reason || "Giao dịch bị hủy do lỗi mạng hoặc thiếu ETH";
+      toast.error("Thất bại: " + errorMessage, { id: loadingToast });
+    } finally { 
+      setIsBuying(false); 
     }
   };
 
@@ -712,8 +787,26 @@ useEffect(() => {
               ) : (
                 // KHÁCH XEM -> Hiện Mua / Đề nghị giá
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <button onClick={() => toast.error("Chức năng Mua sẽ được kích hoạt khi kết nối Smart Contract!")} className="flex items-center justify-center gap-3 w-full py-4 rounded-xl font-bold text-lg text-white bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 transform hover:-translate-y-1 transition-all shadow-[0_10px_20px_rgba(37,99,235,0.3)]">
-                    <DollarSign size={20} /> Mua ngay
+                  <button 
+                    onClick={handleBuyNFT} 
+                    disabled={isBuying}
+                    className={`flex items-center justify-center gap-3 w-full py-4 rounded-xl font-bold text-lg text-white transform transition-all ${
+                      isBuying 
+                        ? "bg-gray-600 cursor-not-allowed opacity-70" 
+                        : "bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 hover:-translate-y-1 shadow-[0_10px_20px_rgba(37,99,235,0.3)]"
+                    }`}
+                  >
+                    {isBuying ? (
+                      <>
+                        <Loader2 size={20} className="animate-spin" /> 
+                        Đang xử lý...
+                      </>
+                    ) : (
+                      <>
+                        <DollarSign size={20} /> 
+                        Mua ngay
+                      </>
+                    )}
                   </button>
                   <button className="w-full py-4 rounded-xl font-bold text-lg text-gray-300 bg-gray-700 hover:bg-gray-600 transition-colors">
                     Đề nghị giá

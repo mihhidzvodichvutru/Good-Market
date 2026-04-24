@@ -1,10 +1,12 @@
 "use client";
 
+import { ethers } from "ethers";
 import { useState, useRef } from "react";
 import { UploadCloud, X, Image as ImageIcon, Video, Music, ImagePlus, Sparkles } from "lucide-react";
 import { supabase } from "../../lib/supabase"; 
 import { useRouter } from "next/navigation"; 
 import toast from 'react-hot-toast';
+import { CONTRACT_ADDRESS, CONTRACT_ABI } from "@/lib/contract";
 
 export default function MintNFT() {
   const router = useRouter();
@@ -103,144 +105,121 @@ export default function MintNFT() {
     if (coverInputRef.current) coverInputRef.current.value = "";
   };
 
-  // ==========================================
-  // LOGIC GỬI LÊN DATABASE (HỖ TRỢ CHUẨN OPENSEA METADATA)
+// ==========================================
+  // LOGIC MINT XỊN (IPFS -> BLOCKCHAIN -> SUPABASE)
   // ==========================================
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
     if (!file || !name || !price) {
-      toast.error("Vui lòng điền đầy đủ thông tin và chọn file gốc!");
+      toast.error("Vui lòng điền đầy đủ thông tin!");
       return;
     }
 
-    // Ràng buộc cứng: Video và Nhạc BẮT BUỘC phải có ảnh bìa
     if ((mediaType === "audio" || mediaType === "video") && !coverFile) {
-      toast.error("🎧 Mảng Video/Âm thanh bắt buộc phải có Ảnh bìa (Thumbnail)!");
+      toast.error("🎧 Mảng Video/Âm thanh bắt buộc phải có Ảnh bìa!");
       return;
     }
 
-    if (typeof window !== "undefined" && (window as any).ethereum) {
-      const toastId = toast.loading("⏳ Đang khởi tạo và đẩy dữ liệu lên IPFS...");
-      try {
-        const accounts = await (window as any).ethereum.request({ method: 'eth_accounts' });
-        if (accounts.length === 0) {
-          toast.error("🦊 Vui lòng kết nối ví MetaMask!");
-          return;
-        }
+    if (typeof window === "undefined" || !(window as any).ethereum) {
+      return toast.error("Vui lòng cài đặt MetaMask!");
+    }
 
-        setIsMinting(true);
+    const toastId = toast.loading("⏳ Bước 1: Đang đẩy dữ liệu lên IPFS...");
+    setIsMinting(true);
 
-        // 1. Đóng gói dữ liệu gửi đi (Gửi 1 hoặc 2 file tùy loại)
-        const formData = new FormData();
-        formData.append("file", file); // File chính
-        formData.append("name", name);
-        formData.append("description", description);
-        
-        // Gắn thêm ảnh bìa vào form nếu có
-        if (coverFile) {
-          formData.append("cover", coverFile); // <--- Đổi thành "cover" theo đúng lời dặn
-        }
+    try {
+      const accounts = await (window as any).ethereum.request({ method: 'eth_accounts' });
+      if (accounts.length === 0) throw new Error("Vui lòng kết nối ví MetaMask!");
 
-        // 2. Bắn sang API IPFS
-        const uploadResponse = await fetch('/api/upload', {
-          method: 'POST',
-          body: formData,
-        });
+      // --- BƯỚC 1: UPLOAD IPFS (GIỮ NGUYÊN LOGIC CŨ) ---
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append("name", name);
+      formData.append("description", description);
+      if (coverFile) formData.append("cover", coverFile);
 
-        if (!uploadResponse.ok) {
-          throw new Error("Lỗi khi tải file lên mạng IPFS Pinata!");
-        }
+      const uploadResponse = await fetch('/api/upload', { method: 'POST', body: formData });
+      if (!uploadResponse.ok) throw new Error("Lỗi upload IPFS!");
+      
+      const uploadData = await uploadResponse.json();
+      const metadataIpfsUrl = uploadData.ipfsUrl; // Link ipfs://Qm...
 
-        const uploadData = await uploadResponse.json();
-        
-        // --- BẮT ĐẦU BÓC HÀNH TÂY (Chuẩn OpenSea) ---
-        const metadataIpfsUrl = uploadData.ipfsUrl; 
-        
-        // Bước B: Dùng cổng VIP để fetch cái file JSON đó về đọc thử (SỬA Ở ĐÂY)
-        const gateway = process.env.NEXT_PUBLIC_PINATA_GATEWAY || "https://gateway.pinata.cloud";
-        const gatewayUrl = metadataIpfsUrl.replace("ipfs://", `${gateway}/ipfs/`);
-        
-        const metadataResponse = await fetch(gatewayUrl);
-        const metadataJson = await metadataResponse.json();
+      // --- BƯỚC 2: TÁC CHIẾN TRÊN BLOCKCHAIN (THÊM MỚI) ---
+      toast.loading("🦊 Bước 2: Vui lòng xác nhận đúc trên MetaMask...", { id: toastId });
 
-        // Đọc dữ liệu từ file JSON mới của ông bạn IPFS:
-        const realCoverLink = metadataJson.image; // Luôn lấy ảnh bìa
-        // Nếu là Nhạc/Video thì lấy animation_url, nếu là Ảnh thì xài luôn link ảnh
-        const realMediaLink = metadataJson.animation_url || metadataJson.image; 
-        // ---------------------------
+      const provider = new ethers.BrowserProvider((window as any).ethereum);
+      const signer = await provider.getSigner();
+      // Nhớ import CONTRACT_ADDRESS và CONTRACT_ABI từ file lib/contract nhé
+      const contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, signer);
 
-        // 3. GHI DỮ LIỆU THẬT VÀO SUPABASE 
-        const { error: dbError } = await supabase
-          .from('nfts')
-          .insert([
-            {
-              name: name,
-              description: description,
-              price: parseFloat(price),
-              owner: accounts[0],
-              image: realMediaLink,      // Cột này để trình duyệt web phát Nhạc/Video/Ảnh
-              cover_image: realCoverLink, // Cột này lưu dự phòng Ảnh Bìa để sau trang trí UI
-              media_type: mediaType,
-              is_trending: false
-            }
-          ]);
+      const priceInWei = ethers.parseEther(price.toString());
 
-        if (dbError) throw dbError;
+      // Gọi hàm mintAndList trên Smart Contract V3 của mình
+      const tx = await contract.mintAndList(metadataIpfsUrl, priceInWei);
+      
+      toast.loading("🔗 Bước 3: Đang chờ Blockchain xác nhận...", { id: toastId });
+      const receipt = await tx.wait();
 
-        // Nâng cấp Toast Thành công thành Bảng điều hướng 2 lựa chọn
-        toast.custom((t) => (
-          <div className={`${t.visible ? 'animate-enter' : 'animate-leave'} max-w-md w-full bg-gray-800 shadow-2xl rounded-2xl border border-green-500/30 pointer-events-auto flex flex-col overflow-hidden`}>
-            
-            {/* Khu vực Lời chúc */}
-            <div className="p-5 flex items-start gap-4 bg-gradient-to-b from-green-500/10 to-transparent">
-              <div className="text-4xl animate-bounce">🎉</div>
-              <div>
-                <h3 className="text-lg font-bold text-green-400 mb-1">
-                  Đúc siêu phẩm thành công!
-                </h3>
-                <p className="text-sm text-gray-300 leading-relaxed">
-                  Tác phẩm <span className="font-bold text-green-400">"{name}"</span> của bạn đã được ghi nhận lên IPFS. Bạn muốn làm gì tiếp theo?</p>
-              </div>
-            </div>
-            
-            {/* Khu vực Nút bấm (Chia đôi) */}
-            <div className="flex border-t border-gray-700 bg-gray-900/80">
-              <button
-                onClick={() => {
-                  toast.dismiss(t.id); 
-                  window.location.href = '/explore'; // Chuyển sang trang Khám phá
-                }}
-                className="w-full border-r border-gray-700 p-4 text-sm font-bold text-blue-400 hover:bg-blue-500 hover:text-white transition-all flex justify-center items-center gap-2"
-              >
-                🚀 Xem trên Chợ
-              </button>
-              <button
-                onClick={() => {
-                  toast.dismiss(t.id); // Tắt Toast để người dùng ở lại trang
-                  
-                  // (Tùy chọn): Bạn có thể gọi các hàm reset state ở đây để xóa form cũ
-                  // Ví dụ: setFile(null); setName(""); setPrice("");
-                }}
-                className="w-full p-4 text-sm font-bold text-gray-400 hover:bg-gray-700 hover:text-white transition-all flex justify-center items-center gap-2"
-              >
-                🔄 Mint tiếp
-              </button>
+      // --- ĐOẠN MA THUẬT: BÓC TÁC TOKEN_ID ---
+      let mintedTokenId = null;
+      // Duyệt qua các logs để tìm event Transfer(address from, address to, uint256 tokenId)
+      for (const log of receipt.logs) {
+        try {
+          const parsedLog = contract.interface.parseLog(log);
+          if (parsedLog && parsedLog.name === 'Transfer') {
+            mintedTokenId = parsedLog.args[2].toString(); // Lấy tokenId từ tham số thứ 3
+            break;
+          }
+        } catch (e) { continue; }
+      }
+
+      if (mintedTokenId === null) throw new Error("Blockchain không phản hồi ID!");
+
+      // --- BƯỚC 3: GHI VÀO SUPABASE (LƯU KÈM TOKEN_ID) ---
+      toast.loading("💾 Bước 4: Lưu sổ đỏ vào Database...", { id: toastId });
+
+      const { error: dbError } = await supabase
+        .from('nfts')
+        .insert([{
+            token_id: parseInt(mintedTokenId), // <--- QUAN TRỌNG NHẤT LÀ DÒNG NÀY
+            name: name,
+            description: description,
+            price: parseFloat(price),
+            owner_address: accounts[0].toLowerCase(),
+            creator_address: accounts[0].toLowerCase(),
+            image: uploadData.mediaUrl || metadataIpfsUrl, // Link media đã xử lý từ API upload
+            cover_image: uploadData.coverUrl || null,
+            media_type: mediaType,
+            sold: false
+        }]);
+
+      if (dbError) throw dbError;
+
+      // HIỆN BẢNG THÔNG BÁO THÀNH CÔNG (Toast Custom của ông)
+      toast.custom((t) => (
+        <div className={`${t.visible ? 'animate-enter' : 'animate-leave'} max-w-md w-full bg-gray-800 shadow-2xl rounded-2xl border border-green-500/30 pointer-events-auto flex flex-col overflow-hidden`}>
+          <div className="p-5 flex items-start gap-4 bg-gradient-to-b from-green-500/10 to-transparent">
+            <div className="text-4xl animate-bounce">🎉</div>
+            <div>
+              <h3 className="text-lg font-bold text-green-400 mb-1">Mint thành công!</h3>
+              <p className="text-sm text-gray-300">Tác phẩm mang ID: <span className="font-bold text-green-400">#{mintedTokenId}</span> đã lên sóng!</p>
             </div>
           </div>
-        ), { id: toastId, duration: Infinity }); // Dùng chung ID với toast.loading để nó ghi đè lên, và giữ nó không tự tắt
-        
-      } catch (error: any) {
-        console.error("Lỗi:", error);
-        toast.error("Có lỗi: " + error.message);
-      } finally {
-        setIsMinting(false);
-      }
-    } else {
-      toast.error("Vui lòng cài đặt MetaMask!");
+          <div className="flex border-t border-gray-700 bg-gray-900/80">
+            <button onClick={() => { toast.dismiss(t.id); window.location.href = '/explore'; }} className="w-full border-r border-gray-700 p-4 text-sm font-bold text-blue-400 hover:bg-blue-500 hover:text-white transition-all">🚀 Xem trên Chợ</button>
+            <button onClick={() => { toast.dismiss(t.id); window.location.reload(); }} className="w-full p-4 text-sm font-bold text-gray-400 hover:bg-gray-700 hover:text-white transition-all">🔄 Mint tiếp</button>
+          </div>
+        </div>
+      ), { id: toastId, duration: Infinity });
+
+    } catch (error: any) {
+      console.error("Lỗi:", error);
+      toast.error("Thất bại: " + (error.reason || error.message), { id: toastId });
+    } finally {
+      setIsMinting(false);
     }
   };
-
   const renderPreview = () => {
     if (!previewUrl) return null;
     return (
