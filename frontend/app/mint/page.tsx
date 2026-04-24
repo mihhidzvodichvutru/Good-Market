@@ -186,8 +186,8 @@ export default function MintNFT() {
             name: name,
             description: description,
             price: parseFloat(price),
-            owner_address: accounts[0].toLowerCase(),
-            creator_address: accounts[0].toLowerCase(),
+            owner: accounts[0].toLowerCase(),
+            creator: accounts[0].toLowerCase(),
             image: uploadData.mediaUrl || metadataIpfsUrl, // Link media đã xử lý từ API upload
             cover_image: uploadData.coverUrl || null,
             media_type: mediaType,
